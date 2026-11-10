@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>IDENTITY UNKNOWN // CAM:127</title>
+<style>
+:root{
+  --phos:#4dff88; --phos-dim:#1c7a3d; --phos-glow:rgba(77,255,136,.30);
+  --cyan:#00e5ff; --crimson:#ff2d3f; --amber:#ffb000;
+  --bg:#040705;
+  --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);overflow:hidden;font-family:var(--mono);
+  -webkit-font-smoothing:antialiased;color:var(--phos);cursor:crosshair}
+
+#stage{position:fixed;inset:0;overflow:hidden}
+#feed{position:absolute;inset:0;width:100%;height:100%;display:block}
+video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;top:-10px;left:-10px}
+
+/* ---------- post layers ---------- */
+.layer{position:fixed;inset:0;pointer-events:none;z-index:60}
+#scanlines{background:repeating-linear-gradient(180deg,
+    rgba(0,0,0,0) 0px, rgba(0,0,0,0) 1.5px,
+    rgba(0,0,0,.26) 2px, rgba(0,0,0,.26) 3px);
+  mix-blend-mode:multiply;opacity:.8}
+#crawl{background:linear-gradient(180deg,
+    rgba(255,255,255,0) 0%, rgba(180,255,210,.04) 45%, rgba(180,255,210,.07) 50%,
+    rgba(180,255,210,.04) 55%, rgba(255,255,255,0) 100%);
+  height:34%;top:-34%;animation:crawl 6s linear infinite;mix-blend-mode:screen}
+@keyframes crawl{0%{top:-34%}100%{top:104%}}
+#grain{opacity:.26;mix-blend-mode:overlay;background-size:180px 180px;
+  animation:grainshift .55s steps(4) infinite}
+@keyframes grainshift{
+  0%{background-position:0 0}25%{background-position:-40px 30px}
+  50%{background-position:25px -50px}75%{background-position:-60px -20px}
+  100%{background-position:0 0}}
+#vignette{background:
+   radial-gradient(120% 95% at 50% 50%, rgba(0,0,0,0) 44%, rgba(0,0,0,.52) 78%, rgba(0,0,0,.9) 100%);
+  z-index:61}
+#bloom{z-index:59;mix-blend-mode:screen;opacity:.45;
+  background:radial-gradient(60% 45% at 50% 45%, rgba(77,255,136,.05), rgba(0,0,0,0) 70%)}
+
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;z-index:40;pointer-events:none;
+  font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+#hud.hidden{opacity:0}
+.hud-tl{position:absolute;top:14px;left:16px}
+.hud-tr{position:absolute;top:14px;right:16px;text-align:right}
+.k{color:var(--phos-dim)}
+.v{color:var(--phos);text-shadow:0 0 7px var(--phos-glow)}
+.row{margin-bottom:3px;white-space:nowrap}
+.rec{color:var(--crimson);text-shadow:0 0 8px rgba(255,45,63,.6)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--crimson);
+  margin-right:5px;vertical-align:middle;animation:blink 1.1s steps(2) infinite}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:.15}}
+#lcdrow{color:var(--phos);letter-spacing:.10em;margin-top:7px;
+  text-shadow:0 0 8px var(--phos-glow)}
+
+/* ---------- bottom-left column: roster + faceid ---------- */
+.panel{border:1px solid var(--phos-dim);background:rgba(2,10,5,.62);
+  backdrop-filter:blur(2px)}
+.panel .hdr{display:flex;justify-content:space-between;align-items:center;
+  font-size:9px;color:var(--phos);padding:3px 6px;
+  border-bottom:1px solid rgba(28,122,61,.5)}
+
+#faceid{position:absolute;bottom:28px;left:16px;width:196px}
+#faceid .wrap{padding:6px}
+#leds{display:flex;gap:4px}
+#leds i{width:6px;height:6px;border-radius:50%;background:var(--crimson);display:block;
+  box-shadow:0 0 6px rgba(255,45,63,.8)}
+#leds i.on{background:var(--phos);box-shadow:0 0 6px var(--phos-glow)}
+#meshcv{display:block;width:100%;height:118px;background:#000;
+  border:1px solid rgba(28,122,61,.45)}
+#faceid .ftr{font-size:9px;color:var(--phos-dim);margin-top:5px;
+  display:flex;justify-content:space-between}
+#faceid .ftr b{color:var(--phos-dim);font-weight:400}
+#faceid.down{border-color:var(--crimson)}
+#faceid.down .hdr{color:var(--crimson);border-bottom-color:rgba(255,45,63,.5)}
+
+/* name roster, docked directly above the face panel */
+#roster{position:absolute;bottom:214px;left:16px;width:290px;font-size:9.5px}
+#rosterbody{padding:3px 6px 5px;height:132px;overflow:hidden;
+  display:flex;flex-direction:column;justify-content:flex-end}
+.nrow{display:flex;justify-content:space-between;gap:8px;white-space:pre;
+  line-height:1.45;animation:nin .12s ease-out}
+@keyframes nin{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.nrow .nm{color:var(--phos-dim);overflow:hidden;text-overflow:ellipsis}
+.nrow .vd{color:var(--crimson)}
+.nrow.pending .nm{color:var(--phos);text-shadow:0 0 6px var(--phos-glow)}
+.nrow.pending .vd{color:var(--phos)}
+.nrow.no .nm{color:#5a1520;text-decoration:line-through;text-decoration-color:#8c1f2c}
+.nrow.hit .nm{color:var(--amber);text-shadow:0 0 8px rgba(255,176,0,.6)}
+.nrow.hit .vd{color:var(--amber)}
+
+/* ---------- terminals ---------- */
+#terms{position:fixed;inset:0;z-index:50;pointer-events:none}
+.term{position:absolute;width:258px;pointer-events:auto;
+  background:rgba(1,6,3,.82);backdrop-filter:blur(3px);
+  border:1px solid var(--tc-dim);box-shadow:0 0 0 1px rgba(0,0,0,.7), 0 0 18px var(--tc-glow);
+  font-size:9.5px;line-height:1.42;color:var(--tc);
+  animation:tspawn .13s cubic-bezier(.2,.9,.3,1);overflow:hidden;
+  will-change:transform,opacity}
+@keyframes tspawn{
+  0%{opacity:0;transform:scaleY(.04);filter:brightness(2.6)}
+  100%{opacity:1;transform:scaleY(1);filter:none}}
+.term.ejected{animation:eject .17s cubic-bezier(.5,0,1,.5) forwards}
+@keyframes eject{
+  0%{opacity:1;transform:none}
+  35%{opacity:1;transform:translateX(6px) scaleX(1.03);filter:brightness(2.2)}
+  100%{opacity:0;transform:translateX(-14px) scaleY(.05);filter:brightness(3)}}
+.term .bar{display:flex;align-items:center;gap:6px;padding:2px 6px;
+  background:var(--tc-dim);color:#02100a;font-size:8.5px;cursor:grab;
+  letter-spacing:.05em;user-select:none}
+.term .bar .ttl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.term .bar .btns{letter-spacing:.14em;opacity:.75}
+.term .body{padding:4px 6px 5px;max-height:136px;overflow:hidden;
+  display:flex;flex-direction:column;justify-content:flex-end;min-height:44px}
+.term .ln{white-space:pre;overflow:hidden;text-overflow:ellipsis}
+.term .ln.dimx{color:var(--tc-dim);filter:brightness(1.7)}
+.term .ln.warn{color:var(--amber)}
+.term .ln.ice{color:#7ec8ff}
+.term .ln.fail{color:var(--crimson)}
+.term .ln.stamp{color:#eafff1;background:rgba(255,255,255,.06);
+  border-left:2px solid var(--crimson);padding-left:4px}
+.term .prog{height:2px;background:rgba(255,255,255,.08);margin:3px 0 1px;overflow:hidden}
+.term .prog i{display:block;height:100%;background:var(--tc);width:0%;
+  transition:width .09s linear;box-shadow:0 0 8px var(--tc-glow)}
+.term.repelled{border-color:var(--crimson)}
+.term.repelled .bar{background:var(--crimson);color:#1a0004}
+.term.repelled .prog i{background:var(--crimson)}
+
+/* ---------- boot ---------- */
+#boot{position:fixed;inset:0;z-index:200;background:#040705;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  text-align:center;padding:24px}
+#boot.gone{opacity:0;pointer-events:none;transition:opacity .45s}
+#boot h1{font-size:13px;letter-spacing:.44em;font-weight:400;color:#eafff1;
+  text-shadow:0 0 16px var(--phos-glow)}
+#boot .sub{font-size:10px;color:var(--phos-dim);letter-spacing:.16em;max-width:440px;
+  line-height:1.9}
+#boot .sub em{color:var(--phos);font-style:normal}
+#go{font:inherit;font-size:11px;letter-spacing:.2em;color:#02100a;background:var(--phos);
+  border:0;padding:9px 22px;cursor:pointer;text-transform:uppercase;
+  box-shadow:0 0 22px var(--phos-glow)}
+#go:hover{background:#eafff1}
+#go:disabled{background:var(--phos-dim);color:#03150a;cursor:progress;box-shadow:none}
+#bootlog{font-size:9.5px;color:var(--phos-dim);letter-spacing:.06em;line-height:1.7;
+  min-height:92px;text-align:left;width:min(440px,86vw);white-space:pre-wrap}
+#keys{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:41;
+  font-size:9px;color:rgba(28,122,61,.85);letter-spacing:.14em;pointer-events:none;
+  transition:opacity .6s}
+#keys.fade{opacity:0}
+#ticker{position:fixed;left:0;right:0;bottom:0;height:19px;overflow:hidden;z-index:41;
+  background:rgba(0,0,0,.55);border-top:1px solid rgba(28,122,61,.5);
+  font-size:10px;color:var(--phos-dim);line-height:19px;white-space:nowrap}
+#ticker span{display:inline-block;padding-left:100%;animation:tick 26s linear infinite}
+@keyframes tick{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
+</style>
+</head>
+<body>
+
+<div id="stage"><canvas id="feed"></canvas></div>
+<video id="cam" playsinline autoplay muted></video>
+
+<div id="terms"></div>
+
+<div id="hud">
+  <div class="hud-tl">
+    <div class="row"><span class="v" id="camid">CAM:127</span> <span class="k">/ OPTIC-NRV</span></div>
+    <div class="row"><span class="k">SESS</span> <span class="v" id="sess">--------</span></div>
+    <div class="row"><span class="k">RES </span> <span class="v" id="res">----x----</span>
+                    <span class="k" id="fps">--fps</span></div>
+    <div class="row"><span class="k">TRK </span> <span class="v" id="trk">STANDBY</span></div>
+    <div class="row"><span class="k">VEC </span> <span class="v" id="procs">0</span>
+                    <span class="k">ACTIVE /</span> <span class="v" id="lockct">0</span>
+                    <span class="k">LOCKED</span></div>
+    <div class="row" id="lcdrow">00/00/0000 00:00:00</div>
+  </div>
+
+  <div class="hud-tr">
+    <div class="row rec"><span class="dot"></span>REC <span id="rectime">00:00:00</span></div>
+    <div class="row"><span class="k">MODE</span> <span class="v">HOSTILE-INTERROGATE</span></div>
+    <div class="row"><span class="k">EJECTED</span> <span class="v" id="failct">0</span></div>
+    <div class="row"><span class="k">MATCH</span> <span class="v">0.000%</span></div>
+    <div class="row"><span class="k">ICE</span> <span class="v" id="icest">SENTINEL ACTIVE</span></div>
+    <div class="row"><span class="k" id="sensor">SENSOR NOMINAL</span></div>
+  </div>
+
+  <div class="panel" id="roster">
+    <div class="hdr"><span>INDEX SWEEP / CIVIL REGISTRY</span><span id="rosterct">0</span></div>
+    <div id="rosterbody"></div>
+  </div>
+
+  <div class="panel" id="faceid">
+    <div class="hdr"><span id="fidttl">FACE ID &mdash; TRACKING</span>
+                    <span id="leds"><i></i><i></i><i></i></span></div>
+    <div class="wrap">
+      <canvas id="meshcv"></canvas>
+      <div class="ftr"><span id="acq">TARGET ACQUIRED</span><b id="corrupt">CLEAN</b></div>
+    </div>
+  </div>
+</div>
+
+<div id="keys">[H] HUD &nbsp; [T] TERMINALS &nbsp; [V] VOID &nbsp; [F] FULLSCREEN &nbsp; [ESC] HALT</div>
+<div id="ticker"><span id="tickspan"></span></div>
+
+<div class="layer" id="bloom"></div>
+<div class="layer" id="scanlines"></div>
+<div class="layer" id="crawl"></div>
+<div class="layer" id="grain"></div>
+<div class="layer" id="vignette"></div>
+
+<div id="boot">
+  <h1>IDENTITY UNKNOWN</h1>
+  <div class="sub">
+    OPTICAL INTERROGATION SUITE &mdash; NODE CAM:127<br>
+    THIS PROCESS WILL ATTEMPT TO ESTABLISH YOUR IDENTITY.<br>
+    <em>YOUR BIOMETRICS WILL REPEL IT.</em>
+  </div>
+  <button id="go">&gt; INITIALIZE OPTICAL SENSOR</button>
+  <div id="bootlog"></div>
+</div>
+
+<script type="module">
+/* ============================================================================
+   IDENTITY UNKNOWN  //  v2
+   An intrusion process rakes a live camera feed for identity. The subject is
+   the firewall: every probe that touches a biometric region is detected,
+   corrupted and ejected within a second or two. Some probes get counter-hacked
+   outright and the region they touched stays locked behind a filter.
+   ========================================================================== */
+
+const MP_VER   = '0.10.14';
+const MP_BUNDLE= `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/vision_bundle.mjs`;
+const MP_WASM  = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/wasm`;
+const MP_FACE  = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const MP_HAND  = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const MP_POSE  = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+
+const MAX_TERMS = 10;
+const DPR_CAP   = 1.5;
+const MAX_FX_PX = 95000;
+
+/* probe timing — the whole point of v2 is that these are brutally short */
+const T_INJECT = [90, 190];      // box materialises + locks on
+const T_PROBE  = [620, 1500];    // actual sampling window
+const T_EJECT  = [170, 300];     // countermeasure throws it out
+const SPAWN_GAP= [110, 330];     // between new probes
+const LOCK_MS  = [10000, 15000]; // counter-hack cooldown
+const MAX_LOCKS= 3;              // concurrent sealed regions
+
+const PALETTES = {
+  phosphor:{c:'#4dff88', d:'#1c7a3d', g:'rgba(77,255,136,.28)', w:44},
+  cyan    :{c:'#00e5ff', d:'#0a5f6b', g:'rgba(0,229,255,.28)',  w:26},
+  crimson :{c:'#ff2d3f', d:'#6b1119', g:'rgba(255,45,63,.28)',  w:18},
+  amber   :{c:'#ffb000', d:'#6b4a00', g:'rgba(255,176,0,.28)',  w:12},
+};
+const PAL_BAG = Object.keys(PALETTES).flatMap(k => Array(PALETTES[k].w).fill(k));
+
+/* ------------------------------------------------------------------ helpers */
+const $ = s => document.querySelector(s);
+const rnd   = (a,b)=> a + Math.random()*(b-a);
+const rndOf = r => rnd(r[0], r[1]);
+const irnd  = (a,b)=> Math.floor(rnd(a,b+1));
+const pick  = a => a[(Math.random()*a.length)|0];
+const clamp = (v,a,b)=> v<a?a:v>b?b:v;
+const lerp  = (a,b,t)=> a+(b-a)*t;
+const pad   = (n,l=2)=> String(n).padStart(l,'0');
+const hex   = (n,l=2)=> n.toString(16).toUpperCase().padStart(l,'0');
+const now   = ()=> performance.now();
+
+function hexdump(){
+  let bytes='', ascii='';
+  for(let i=0;i<8;i++){
+    const b = irnd(0,255);
+    bytes += hex(b)+' ';
+    ascii += (b>32&&b<127) ? String.fromCharCode(b) : '.';
+  }
+  return `0x${hex(irnd(0,0xFFFFFF),6)}  ${bytes} ${ascii}`;
+}
+
+/* --------------------------------------------------------------------- state */
+const S = {
+  running:false, degraded:false,
+  W:0,H:0,dpr:1, vw:0,vh:0, map:{dx:0,dy:0,dw:0,dh:0},
+  face:null, hands:[], pose:null, tess:null,
+  rois:new Map(), jobs:[], filters:[], locks:new Map(),
+  motion:[], voidUntil:0, nextVoid:0,
+  fails:0, checked:0, frames:0, fpsT:0, fps:60,
+  t0:0, sess:'', subjectSeen:0, lastFrame:0,
+  panelDownUntil:0, panelRebootAt:0,
+};
+
+/* -------------------------------------------------------------------- canvas */
+const feed = $('#feed'), fctx = feed.getContext('2d',{alpha:false, willReadFrequently:true});
+const video = $('#cam');
+const meshcv = $('#meshcv'), mctx = meshcv.getContext('2d');
+const work  = document.createElement('canvas');
+const wctx  = work.getContext('2d',{willReadFrequently:true});
+const work2 = document.createElement('canvas');
+const w2ctx = work2.getContext('2d',{willReadFrequently:true});
+const diffcv= document.createElement('canvas'); diffcv.width=64; diffcv.height=48;
+const dctx  = diffcv.getContext('2d',{willReadFrequently:true});
+let prevDiff = null;
+
+function resize(){
+  S.dpr = Math.min(window.devicePixelRatio||1, DPR_CAP);
+  S.W = window.innerWidth; S.H = window.innerHeight;
+  feed.width = Math.round(S.W*S.dpr); feed.height = Math.round(S.H*S.dpr);
+  feed.style.width = S.W+'px'; feed.style.height = S.H+'px';
+  fctx.setTransform(S.dpr,0,0,S.dpr,0,0);
+  const r = meshcv.getBoundingClientRect();
+  meshcv.width = Math.round(r.width*S.dpr); meshcv.height = Math.round(r.height*S.dpr);
+  mctx.setTransform(S.dpr,0,0,S.dpr,0,0);
+}
+window.addEventListener('resize', resize);
+
+function mapPt(x,y){ const m=S.map; return {x: m.dx+(1-x)*m.dw, y: m.dy+y*m.dh}; }
+function computeMap(){
+  if(!S.vw || !S.vh) return;
+  const s = Math.max(S.W/S.vw, S.H/S.vh);
+  S.map.dw = S.vw*s; S.map.dh = S.vh*s;
+  S.map.dx = (S.W-S.map.dw)/2; S.map.dy = (S.H-S.map.dh)/2;
+}
+
+/* grain tile */
+(function(){
+  const c=document.createElement('canvas'); c.width=c.height=180;
+  const x=c.getContext('2d'), img=x.createImageData(180,180), d=img.data;
+  for(let i=0;i<d.length;i+=4){
+    const v=110+Math.random()*145|0; d[i]=d[i+1]=d[i+2]=v; d[i+3]=26+Math.random()*60;
+  }
+  x.putImageData(img,0,0);
+  $('#grain').style.backgroundImage=`url(${c.toDataURL()})`;
+})();
+
+/* ============================================================================
+   REGIONS
+   ========================================================================== */
+const FACE_IDX = {
+  eye_r  :[33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246],
+  eye_l  :[362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398],
+  iris_r :[468,469,470,471,472],
+  iris_l :[473,474,475,476,477],
+  brow   :[70,63,105,66,107,336,296,334,293,300],
+  nose   :[168,6,197,195,5,4,1,19,94,97,326,278,48,115,344],
+  mouth  :[61,146,91,181,84,17,314,405,321,375,291,308,415,310,311,312,13,82,81,80,78],
+  jaw    :[172,136,150,149,176,148,152,377,400,378,379,365,397,288,58],
+  ear_r  :[234,227,137,177,215,138,135,93,132],
+  ear_l  :[454,447,366,401,435,367,364,323,361],
+  temple_r:[21,54,103,67,109,162],
+  temple_l:[251,284,332,297,338,389],
+};
+const ALL_FACE = [...Array(468).keys()];
+const ALL_HAND = [...Array(21).keys()];
+
+/* pose landmark groups (BlazePose 33) */
+const POSE_IDX = {
+  shoulder_r:[11,13], shoulder_l:[12,14],
+  torso     :[11,12,23,24],
+  neck      :[11,12,0],
+  forearm_r :[13,15,17,19],
+  forearm_l :[14,16,18,20],
+};
+
+const TARGETS = [
+  {k:'face_full', lbl:'FACE_FULL',   cmd:'faceid.match --db=NCIC --thresh=.94', id:true },
+  {k:'mesh',      lbl:'TOPOLOGY',    cmd:'topology.rebuild --points=478',        id:true },
+  {k:'eye_l',     lbl:'OCULAR_L',    cmd:'iris.extract --eye=L --bits=2048',     id:true },
+  {k:'eye_r',     lbl:'OCULAR_R',    cmd:'iris.extract --eye=R --bits=2048',     id:true },
+  {k:'iris_l',    lbl:'IRIS_L',      cmd:'iriscode.gabor --wavelet=4',           id:true },
+  {k:'iris_r',    lbl:'IRIS_R',      cmd:'iriscode.gabor --wavelet=4',           id:true },
+  {k:'jaw',       lbl:'MANDIBLE',    cmd:'mandible.geometry --depth=3',          id:true },
+  {k:'mouth',     lbl:'LABIAL',      cmd:'labial.print --sample=hi',             id:true },
+  {k:'nose',      lbl:'NASAL_RIDGE', cmd:'nasal.ridge --vector --norm',          id:true },
+  {k:'brow',      lbl:'SUPRAORBITAL',cmd:'orbital.arc --fit=spline',             id:true },
+  {k:'ear_l',     lbl:'AURICLE_L',   cmd:'otometry.scan --canal --helix',        id:true },
+  {k:'ear_r',     lbl:'AURICLE_R',   cmd:'otometry.scan --canal --helix',        id:true },
+  {k:'temple_l',  lbl:'CRANIAL_L',   cmd:'cranial.index --lat=L',                id:true },
+  {k:'temple_r',  lbl:'CRANIAL_R',   cmd:'cranial.index --lat=R',                id:true },
+  {k:'hand_0',    lbl:'MANUS_A',     cmd:'derm.ridge --palm --dpi=1200',         id:true },
+  {k:'hand_1',    lbl:'MANUS_B',     cmd:'derm.ridge --palm --dpi=1200',         id:true },
+  {k:'digit_0',   lbl:'DIGIT_A',     cmd:'minutiae.lift --finger=2',             id:true },
+  {k:'digit_1',   lbl:'DIGIT_B',     cmd:'minutiae.lift --finger=2',             id:true },
+  {k:'shoulder_l',lbl:'DELTOID_L',   cmd:'frame.metric --joint=acromion',        id:true },
+  {k:'shoulder_r',lbl:'DELTOID_R',   cmd:'frame.metric --joint=acromion',        id:true },
+  {k:'neck',      lbl:'CERVICAL',    cmd:'gait.posture --seg=c1',                id:true },
+  {k:'torso',     lbl:'THORAX',      cmd:'anthro.ratio --shoulder:hip',          id:true },
+  {k:'forearm_l', lbl:'ULNA_L',      cmd:'limb.length --bone=ulna',              id:true },
+  {k:'forearm_r', lbl:'ULNA_R',      cmd:'limb.length --bone=ulna',              id:true },
+  {k:'amb_0',     lbl:'OBJ_UNCLASS', cmd:'objclass.infer --topk=5',              id:false},
+  {k:'amb_1',     lbl:'SURFACE',     cmd:'texel.sample --gabor',                 id:false},
+  {k:'amb_2',     lbl:'TEXTILE',     cmd:'fabric.weave --idx',                   id:false},
+];
+const T_BY_KEY = Object.fromEntries(TARGETS.map(t=>[t.k,t]));
+
+const TAGS = {};
+const tagOf = k => TAGS[k] || (TAGS[k] = {id:irnd(10,99), val:rnd(180000,260000).toFixed(1)});
+
+/* ------------------------------------------------------- roi build + smooth */
+/* useVis only for pose — face/hand landmarks carry visibility=0 and would all
+   be discarded by the same test */
+function bboxOf(lms, idx, padPct, useVis){
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,n=0;
+  for(const i of idx){
+    const p = lms[i]; if(!p) continue;
+    if(useVis && (p.visibility ?? 1) < 0.45) continue;
+    const q = mapPt(p.x,p.y);
+    if(q.x<x0)x0=q.x; if(q.y<y0)y0=q.y;
+    if(q.x>x1)x1=q.x; if(q.y>y1)y1=q.y; n++;
+  }
+  if(n<2) return null;
+  let w=x1-x0, h=y1-y0;
+  const px=w*padPct+7, py=h*padPct+7;
+  return {x:x0-px, y:y0-py, w:Math.max(w+px*2,30), h:Math.max(h+py*2,30)};
+}
+
+/* frame-rate independent smoothing — this is what makes the boxes glide */
+let smoothA = 0.3;
+function setROI(k, r){
+  if(!r){ const e=S.rois.get(k); if(e) e.seen=false; return; }
+  const e = S.rois.get(k);
+  if(!e){ S.rois.set(k,{...r, seen:true}); return; }
+  const a = e.seen ? smoothA : 1;
+  e.x=lerp(e.x,r.x,a); e.y=lerp(e.y,r.y,a);
+  e.w=lerp(e.w,r.w,a); e.h=lerp(e.h,r.h,a);
+  e.seen = true;
+}
+
+function rebuildROIs(){
+  const lms = S.face;
+  if(lms){
+    S.subjectSeen = now();
+    for(const key in FACE_IDX){
+      const p = key.startsWith('iris')?1.1 : key.startsWith('eye')?0.34
+              : key.startsWith('ear')?0.22 : 0.14;
+      setROI(key, bboxOf(lms, FACE_IDX[key], p));
+    }
+    const full = bboxOf(lms, ALL_FACE, 0.10);
+    setROI('face_full', full);
+    setROI('mesh', full ? {x:full.x-9,y:full.y-9,w:full.w+18,h:full.h+18} : null);
+  } else {
+    for(const k of [...Object.keys(FACE_IDX),'face_full','mesh']) setROI(k,null);
+  }
+
+  for(let i=0;i<2;i++){
+    const h = S.hands[i];
+    setROI('hand_'+i,  h ? bboxOf(h, ALL_HAND, 0.16) : null);
+    setROI('digit_'+i, h ? bboxOf(h, [8,7,6,5], 0.55) : null);
+  }
+
+  if(S.pose){
+    for(const key in POSE_IDX) setROI(key, bboxOf(S.pose, POSE_IDX[key], 0.16, true));
+  } else {
+    for(const key in POSE_IDX) setROI(key, null);
+  }
+
+  updateAmbient();
+}
+
+/* motion probe → ambient targets + the entropy trace */
+let ambTimer = 0, ambCells = [];
+function updateAmbient(){
+  if(now() < ambTimer) return;
+  ambTimer = now() + 700;
+  try{
+    dctx.save(); dctx.translate(64,0); dctx.scale(-1,1);
+    dctx.drawImage(video,0,0,64,48); dctx.restore();
+  }catch(e){ return; }
+  const cur = dctx.getImageData(0,0,64,48).data;
+  if(prevDiff){
+    const cells=[];
+    for(let cy=0;cy<4;cy++) for(let cx=0;cx<4;cx++){
+      let sum=0;
+      for(let y=cy*12;y<cy*12+12;y+=2) for(let x=cx*16;x<cx*16+16;x+=2){
+        const i=(y*64+x)*4;
+        sum += Math.abs(cur[i]-prevDiff[i]) + Math.abs(cur[i+1]-prevDiff[i+1]);
+      }
+      cells.push({cx,cy,e:sum});
+    }
+    cells.sort((a,b)=>b.e-a.e);
+    ambCells = cells.slice(0,3);
+    let tot=0; for(const c of cells) tot+=c.e;
+    S.motion.push(tot/9000); if(S.motion.length>120) S.motion.shift();
+  }
+  prevDiff = cur;
+  ambCells.forEach((c,i)=>{
+    const cw=S.W/4, ch=S.H/4;
+    setROI('amb_'+i, {x:c.cx*cw+cw*.14+rnd(-12,12), y:c.cy*ch+ch*.14+rnd(-12,12),
+                      w:cw*.66, h:ch*.60});
+  });
+  for(let i=ambCells.length;i<3;i++) setROI('amb_'+i,null);
+}
+
+/* ============================================================================
+   CORRUPTION FILTERS — strictly inside the probed rect, nothing outside
+   ========================================================================== */
+function fxBegin(x,y,w,h,smoothIn=true){
+  const sx=Math.round(x*S.dpr), sy=Math.round(y*S.dpr);
+  const sw=Math.max(1,Math.round(w*S.dpr)), sh=Math.max(1,Math.round(h*S.dpr));
+  const sc=Math.min(1, Math.sqrt(MAX_FX_PX/(sw*sh)));
+  const pw=Math.max(2,Math.round(sw*sc)), ph=Math.max(2,Math.round(sh*sc));
+  work.width=pw; work.height=ph;
+  wctx.imageSmoothingEnabled=smoothIn;
+  wctx.drawImage(feed, sx,sy,sw,sh, 0,0,pw,ph);
+  return {pw,ph};
+}
+const fxEnd = (x,y,w,h,sm=true)=>{
+  fctx.imageSmoothingEnabled=sm;
+  fctx.drawImage(work,0,0,work.width,work.height,x,y,w,h);
+  fctx.imageSmoothingEnabled=true;
+};
+const fxData = ()=> wctx.getImageData(0,0,work.width,work.height);
+const fxPut  = img => wctx.putImageData(img,0,0);
+function addGrain(d,amount){
+  for(let i=0;i<d.length;i+=4){
+    const n=(Math.random()-.5)*amount;
+    d[i]=clamp(d[i]+n,0,255); d[i+1]=clamp(d[i+1]+n,0,255); d[i+2]=clamp(d[i+2]+n,0,255);
+  }
+}
+
+const FILTERS = {
+  MOSAIC(x,y,w,h,t,k){
+    const blk = Math.max(4, Math.round(lerp(24,7,Math.min(t*1.8,1)))*(0.7+k*0.6));
+    const sw=Math.max(1,Math.round(w/blk)), sh=Math.max(1,Math.round(h/blk));
+    work2.width=sw; work2.height=sh; w2ctx.imageSmoothingEnabled=true;
+    w2ctx.drawImage(feed, Math.round(x*S.dpr),Math.round(y*S.dpr),
+                    Math.max(1,Math.round(w*S.dpr)),Math.max(1,Math.round(h*S.dpr)), 0,0,sw,sh);
+    work.width=Math.max(2,Math.min(300,Math.round(w)));
+    work.height=Math.max(2,Math.min(300,Math.round(h)));
+    wctx.imageSmoothingEnabled=false;
+    wctx.drawImage(work2,0,0,sw,sh,0,0,work.width,work.height);
+    const img=fxData(); addGrain(img.data,34*k); fxPut(img);
+    fxEnd(x,y,w,h,false);
+  },
+  DISSOLVE(x,y,w,h,t,k){
+    fxBegin(x,y,w,h);
+    const img=fxData(); addGrain(img.data,84*k); fxPut(img);
+    fctx.save();
+    fctx.beginPath(); fctx.rect(x,y,w,h); fctx.clip();   // blur must not bleed out
+    fctx.filter=`blur(${Math.max(2,11*k).toFixed(1)}px) `+
+                `contrast(${(1.25+k*.5).toFixed(2)}) saturate(.25) brightness(.86)`;
+    fctx.drawImage(work,0,0,work.width,work.height,x,y,w,h);
+    fctx.restore();
+  },
+  INTERLACE(x,y,w,h,t,k){
+    const {pw,ph}=fxBegin(x,y,w,h);
+    const img=fxData(), d=img.data, amp=10*k;
+    for(let row=0;row<ph;row++){
+      const base=row*pw*4;
+      if((row%3)>=2){
+        for(let px=0;px<pw;px++){ const i=base+px*4; d[i]*=.06; d[i+1]*=.06; d[i+2]*=.07; }
+        continue;
+      }
+      const off=Math.round(Math.sin(row*.21+t*26)*amp);
+      if(off!==0){
+        const cp=d.slice(base,base+pw*4);
+        for(let px=0;px<pw;px++){
+          const s=clamp(px+off,0,pw-1)*4, i=base+px*4;
+          d[i]=Math.min(255,cp[s]*1.45+26); d[i+1]=Math.min(255,cp[s+1]*1.45+32);
+          d[i+2]=Math.min(255,cp[s+2]*1.42+30);
+        }
+      } else {
+        for(let px=0;px<pw;px++){
+          const i=base+px*4;
+          d[i]=Math.min(255,d[i]*1.45+26); d[i+1]=Math.min(255,d[i+1]*1.45+32);
+          d[i+2]=Math.min(255,d[i+2]*1.42+30);
+        }
+      }
+    }
+    fxPut(img); fxEnd(x,y,w,h,false);
+  },
+  DATAMOSH(x,y,w,h,t,k){
+    const {pw,ph}=fxBegin(x,y,w,h);
+    const img=fxData(), d=img.data, src=d.slice(0);
+    let row=0;
+    while(row<ph){
+      const band=irnd(3,20), dx=(Math.random()<.62)?irnd(-22,22)*k:0;
+      const dyo=(Math.random()<.22)?irnd(-8,8):0;
+      const rsh=irnd(-7,7)*k, bsh=irnd(-7,7)*k, end=Math.min(row+band,ph);
+      for(let r2=row;r2<end;r2++){
+        const sy=clamp(r2+dyo,0,ph-1);
+        for(let px=0;px<pw;px++){
+          const dst=(r2*pw+px)*4;
+          d[dst]  = src[(sy*pw+clamp(px+dx+rsh,0,pw-1))*4];
+          d[dst+1]= src[(sy*pw+clamp(px+dx,0,pw-1))*4+1];
+          d[dst+2]= src[(sy*pw+clamp(px+dx+bsh,0,pw-1))*4+2];
+        }
+      }
+      row=end;
+    }
+    fxPut(img); fxEnd(x,y,w,h,false);
+    if(Math.random()<.32){
+      const bw=rnd(w*.2,w*.55), bh=rnd(5,16);
+      fctx.save();
+      fctx.beginPath(); fctx.rect(x,y,w,h); fctx.clip();
+      fctx.globalCompositeOperation='difference';
+      fctx.fillStyle=pick(['#1a3b2a','#0d2f3a','#3a1020']);
+      fctx.fillRect(x+rnd(0,Math.max(0,w-bw)), y+rnd(0,Math.max(0,h-bh)), bw, bh);
+      fctx.restore();
+    }
+  },
+  BLOOM(x,y,w,h,t,k){
+    fxBegin(x,y,w,h);
+    const img=fxData(), d=img.data, thr=92+Math.sin(t*11)*26;
+    for(let i=0;i<d.length;i+=4){
+      const l=d[i]*.299+d[i+1]*.587+d[i+2]*.114;
+      if(l>thr){ const b=.35+clamp((l-thr)/(255-thr),0,1)*.85;
+                 d[i]=90*b; d[i+1]=240*b; d[i+2]=226*b; }
+      else { d[i]*=.05; d[i+1]*=.07; d[i+2]*=.08; }
+    }
+    fxPut(img); fxEnd(x,y,w,h,true);
+    fctx.save();
+    fctx.beginPath(); fctx.rect(x,y,w,h); fctx.clip();
+    fctx.globalCompositeOperation='lighter'; fctx.globalAlpha=.5*k;
+    fctx.filter=`blur(${(5*k).toFixed(1)}px)`;
+    fctx.drawImage(work,0,0,work.width,work.height,x,y,w,h);
+    fctx.restore();
+  },
+  GRID(x,y,w,h,t,k){
+    fxBegin(x,y,w,h);
+    const img=fxData(), d=img.data, lv=3;
+    for(let i=0;i<d.length;i+=4){
+      const l=d[i]*.299+d[i+1]*.587+d[i+2]*.114;
+      d[i]=d[i+1]=d[i+2]=lerp(l, Math.round(l/255*lv)/lv*255, k);
+    }
+    fxPut(img); fxEnd(x,y,w,h,true);
+    const cell=9+Math.sin(t*5)*2;
+    fctx.save();
+    fctx.beginPath(); fctx.rect(x,y,w,h); fctx.clip();
+    fctx.lineWidth=1; fctx.beginPath();
+    for(let gx=x;gx<x+w;gx+=cell){ fctx.moveTo(gx+.5,y); fctx.lineTo(gx+.5,y+h); }
+    for(let gy=y;gy<y+h;gy+=cell){ fctx.moveTo(x,gy+.5); fctx.lineTo(x+w,gy+.5); }
+    fctx.strokeStyle=`rgba(10,14,11,${.55*k})`; fctx.stroke();
+    fctx.strokeStyle=`rgba(220,255,235,${.10*k})`; fctx.stroke();
+    fctx.restore();
+  },
+};
+const FILTER_KEYS = Object.keys(FILTERS);
+
+let fxBudget = 6;
+const fxBudgetForFrame = ()=>{ fxBudget = S.fps>52?7 : S.fps>38?5 : S.fps>25?3 : 2; };
+
+class FilterFX {
+  constructor(kind, roiKey, delay, dur, hold=false){
+    this.kind=kind; this.roiKey=roiKey;
+    this.start=now()+delay; this.end=this.start+dur;
+    this.hold=hold;            // lockdown filters stay at full strength
+    this.dead=false;
+  }
+  get active(){ const n=now(); return n>=this.start && n<=this.end; }
+  apply(){
+    const n=now();
+    if(n>this.end){ this.dead=true; return; }
+    if(n<this.start || fxBudget<=0) return;
+    const r=S.rois.get(this.roiKey); if(!r) return;
+    fxBudget--;
+    const life=(n-this.start)/(this.end-this.start);
+    const k = this.hold
+      ? clamp(life<.05 ? life/.05 : life>.94 ? (1-life)/.06 : 1, 0, 1)
+      : clamp(life<.14 ? life/.14 : life>.84 ? (1-life)/.16 : 1, 0, 1);
+    if(k<=.01) return;
+    const x=clamp(r.x,0,S.W-8), y=clamp(r.y,0,S.H-8);
+    const w=clamp(r.w,10,S.W-x), h=clamp(r.h,10,S.H-y);
+    try{ FILTERS[this.kind](x,y,w,h,life,k); }catch(e){ this.dead=true; }
+    /* no frame, no dashes, no bleed — the hack stays inside the box */
+  }
+}
+
+function cascadeOn(roiKey){
+  const n=irnd(1,3), kinds=[];
+  while(kinds.length<n){ const k=pick(FILTER_KEYS); if(!kinds.includes(k)) kinds.push(k); }
+  const out=[];
+  kinds.forEach((k,i)=>{
+    const f=new FilterFX(k, roiKey, rnd(0,260)+i*rnd(-80,160), rnd(420,1100));
+    S.filters.push(f); out.push(f);
+  });
+  return out;
+}
+
+/* ============================================================================
+   LOCKDOWN — a counter-hacked region is sealed behind one filter for 10-15s
+   ========================================================================== */
+function lockRegion(key, kind){
+  const dur = rndOf(LOCK_MS);
+  const fx = new FilterFX(kind, key, 0, dur, true);
+  S.filters.push(fx);
+  S.locks.set(key, {until: now()+dur, kind, fx});
+  pushTick(`REGION ${(T_BY_KEY[key]||{lbl:key}).lbl} SEALED BY HOST COUNTERMEASURE — ${kind}`);
+}
+function pruneLocks(){
+  const n=now();
+  for(const [k,l] of S.locks) if(n>l.until) S.locks.delete(k);
+}
+const isLocked = k => S.locks.has(k);
+
+/* ============================================================================
+   DOM WRITE QUEUE — batched so 10 terminals can't thrash layout at 60fps
+   ========================================================================== */
+const writeQ = [];
+function flushWrites(dt){
+  /* rate-based, not per-frame: terminals fill at the same speed whether the
+     machine renders at 144fps or 20 */
+  let budget = Math.max(3, Math.round(dt/1000*300));
+  while(writeQ.length && budget-- > 0) writeQ.shift()();
+  if(writeQ.length > 160) writeQ.splice(0, writeQ.length-160);
+}
+
+/* ============================================================================
+   TERMINALS
+   ========================================================================== */
+const termHost = $('#terms');
+let pidSeq = 4400;
+
+function hudKeepOut(){
+  return [
+    {x:0,       y:0,       w:245,h:120},
+    {x:S.W-265, y:0,       w:265,h:120},
+    {x:0,       y:S.H-380, w:315,h:380},
+  ];
+}
+
+class Term {
+  constructor(title, palKey, fixed){
+    const p = PALETTES[palKey];
+    this.el = document.createElement('div');
+    this.el.className='term';
+    this.el.style.setProperty('--tc',p.c);
+    this.el.style.setProperty('--tc-dim',p.d);
+    this.el.style.setProperty('--tc-glow',p.g);
+    this.el.innerHTML =
+      `<div class="bar"><span class="ttl"></span><span class="btns">_ □ ✕</span></div>`+
+      `<div class="body"><div class="prog"><i></i></div></div>`;
+    this.bar=this.el.querySelector('.bar');
+    this.body=this.el.querySelector('.body');
+    this.prog=this.el.querySelector('.prog i');
+    this.el.querySelector('.ttl').textContent=title;
+    if(fixed){ this.el.style.left=fixed.x+'px'; this.el.style.top=fixed.y+'px'; }
+    else this.place();
+    termHost.appendChild(this.el);
+    this.drag();
+    this.lines=0; this.gone=false;
+  }
+  place(){
+    const w=258,h=140,mx=14,my=54;
+    const face=S.rois.get('face_full');
+    const fc=(face&&face.seen)?{x:face.x+face.w/2,y:face.y+face.h/2}:{x:S.W/2,y:S.H*.45};
+    const open=[...termHost.children].map(t=>{
+      const r=t.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2};
+    });
+    let best={x:mx,y:my}, bestScore=-Infinity;
+    for(let i=0;i<18;i++){
+      const x=rnd(mx,Math.max(mx,S.W-w-mx)), y=rnd(my,Math.max(my,S.H-h-40));
+      const cx=x+w/2, cy=y+h/2;
+      let s=Math.hypot(cx-fc.x,cy-fc.y)*0.65;
+      for(const o of open){
+        const d=Math.hypot(cx-o.x,cy-o.y);
+        if(d<210) s-=(210-d)*1.9;
+      }
+      for(const z of hudKeepOut()){
+        const ox=Math.max(0,Math.min(x+w,z.x+z.w)-Math.max(x,z.x));
+        const oy=Math.max(0,Math.min(y+h,z.y+z.h)-Math.max(y,z.y));
+        s-=ox*oy*0.016;
+      }
+      if(s>bestScore){ bestScore=s; best={x,y}; }
+    }
+    this.el.style.left=Math.round(best.x)+'px';
+    this.el.style.top =Math.round(best.y)+'px';
+  }
+  drag(){
+    let sx=0,sy=0,ox=0,oy=0,on=false;
+    this.bar.addEventListener('pointerdown',e=>{
+      on=true; sx=e.clientX; sy=e.clientY;
+      ox=parseFloat(this.el.style.left); oy=parseFloat(this.el.style.top);
+      this.el.style.zIndex=++pidSeq; this.bar.setPointerCapture(e.pointerId);
+    });
+    this.bar.addEventListener('pointermove',e=>{
+      if(!on) return;
+      this.el.style.left=(ox+e.clientX-sx)+'px';
+      this.el.style.top =(oy+e.clientY-sy)+'px';
+    });
+    const up=()=>on=false;
+    this.bar.addEventListener('pointerup',up);
+    this.bar.addEventListener('pointercancel',up);
+  }
+  write(text,cls=''){
+    if(this.gone) return;
+    writeQ.push(()=>{
+      if(this.gone || !this.body.isConnected) return;
+      const d=document.createElement('div');
+      d.className='ln'+(cls?' '+cls:''); d.textContent=text;
+      this.body.insertBefore(d,this.body.lastElementChild);
+      if(++this.lines>9){ const f=this.body.querySelector('.ln'); if(f) f.remove(); }
+    });
+  }
+  setProg(p){ this.prog.style.width=clamp(p*100,0,100).toFixed(1)+'%'; }
+  repel(){ this.el.classList.add('repelled'); }
+  kill(){
+    if(this.gone) return;
+    this.gone=true;
+    this.el.classList.add('ejected');
+    setTimeout(()=>this.el.remove(),180);
+  }
+}
+
+/* ============================================================================
+   PROBE — inject → sample → ejected by the host. One to two seconds, total.
+   ========================================================================== */
+const PH={INJECT:0, PROBE:1, EJECT:2, DONE:3};
+
+const ICE_NAMES=['SENTINEL','BLACKWALL','KERNEL-HALO','WARDEN','NULLSET','ARBITER','TRIPWIRE'];
+
+class Probe {
+  constructor(target){
+    this.t=target;
+    this.pid=++pidSeq;
+    this.phase=PH.INJECT;
+    this.t0=now();
+    this.injectDur=rndOf(T_INJECT);
+    this.probeDur =rndOf(T_PROBE);
+    this.ejectDur =rndOf(T_EJECT);
+    /* counter-hacked outright — but never so many at once that the subject
+       disappears behind sealed regions */
+    this.counter = target.id && S.locks.size < MAX_LOCKS && Math.random()<0.22;
+    this.tag=tagOf(target.k);
+    this.hexT=0; this.lineT=0;
+    this.term=new Term(`▚ /proc/${this.pid}/${target.lbl.toLowerCase()}`, pick(PAL_BAG));
+    this.term.write(`> exec ${target.cmd}`);
+    this.term.write(`  roi=${target.lbl} pid=${this.pid}`,'dimx');
+  }
+  roi(){ return S.rois.get(this.t.k); }
+
+  update(){
+    const n=now(), el=n-this.t0;
+    if(this.phase===PH.INJECT){
+      this.term.setProg(clamp(el/this.injectDur,0,1)*.18);
+      if(el>this.injectDur){
+        const r=this.roi();
+        if(!r||!r.seen){ this.term.write('[ !! ] region left frame','warn'); this.eject('VECTOR LOST'); }
+        else{
+          this.term.write(`[  ok  ] injected  ${Math.round(r.w)}x${Math.round(r.h)}`);
+          this.phase=PH.PROBE; this.t0=n;
+          if(this.t.id) this.trip();
+        }
+      }
+      return;
+    }
+    if(this.phase===PH.PROBE){
+      this.term.setProg(.18+clamp(el/this.probeDur,0,1)*.78);
+      if(n>this.hexT){ this.hexT=n+rnd(70,150); this.term.write(hexdump(),'dimx'); }
+      if(n>this.lineT){ this.lineT=n+rnd(180,380); this.emit(); }
+      if(el>this.probeDur) this.eject(this.t.id?'SCAN VECTOR REJECTED BY HOST':'NO MATCH IN INDEX');
+      return;
+    }
+    if(this.phase===PH.EJECT && el>this.ejectDur){
+      this.phase=PH.DONE; this.term.kill();
+    }
+  }
+
+  /* the subject notices, and the subject wins */
+  trip(){
+    const ice=pick(ICE_NAMES);
+    setTimeout(()=>{
+      if(this.phase!==PH.PROBE) return;
+      const fx=cascadeOn(this.t.k);
+      this.term.write(`[ !! ] host ICE detected — ${ice}/0x${hex(irnd(0,255))}`,'ice');
+      this.term.write(`[ WARN ] cascade ${fx.map(f=>f.kind).join('+')}`,'warn');
+    }, rnd(90,300));
+
+    if(this.counter){
+      setTimeout(()=>{
+        if(this.phase!==PH.PROBE || S.locks.size>=MAX_LOCKS) return;
+        const kind=pick(FILTER_KEYS);
+        this.term.write('[ !! ] INBOUND PAYLOAD — host is counter-scanning','ice');
+        this.term.write(`[ !! ] ${ice}.seal(${this.t.lbl}) → region quarantined`,'ice');
+        lockRegion(this.t.k, kind);
+        this.eject('COUNTER-INTRUSION — PROCESS TERMINATED');
+      }, rnd(240,620));
+    }
+  }
+
+  emit(){
+    const idL=[
+      ()=>`[ WARN ] descriptor corrupted at 0x${hex(irnd(0,0xFFFF),4)}`,
+      ()=>`[ WARN ] ${irnd(41,127)}/128 vectors unusable`,
+      ()=>`[ WARN ] region rewritten mid-read`,
+      ()=>`[ .... ] retry ${irnd(2,9)}/9  conf ${(Math.random()*.03).toFixed(4)}`,
+      ()=>`[ WARN ] SNR ${rnd(-12,2).toFixed(1)}dB below floor`,
+      ()=>`[ !! ] handshake refused by subject`,
+    ];
+    const objL=[
+      ()=>`[  ok  ] ridge count ${irnd(11,63)}  minutiae ${irnd(4,29)}`,
+      ()=>`[  ok  ] descriptor ${irnd(64,512)} dims`,
+      ()=>`[ .... ] knn k=8  best ${rnd(.62,.99).toFixed(4)}`,
+      ()=>`[ .... ] 0 candidates above threshold`,
+    ];
+    this.term.write(pick(this.t.id?idL:objL)(), this.t.id?'warn':'dimx');
+  }
+
+  eject(reason){
+    if(this.phase===PH.EJECT||this.phase===PH.DONE) return;
+    this.phase=PH.EJECT; this.t0=now();
+    this.term.setProg(1);
+    this.term.repel();
+    this.term.write(`[ FAIL ] ${reason}`,'fail');
+    this.term.write(`>> EJECTED  0x${hex(irnd(0,0xFFFFFF),6)}`,'fail');
+    /* the verdict lives here now, in the tail of the dying process */
+    this.term.write(`SUBJECT: IDENTITY UNKNOWN  REF ${irnd(10000000,99999999)}`,'stamp');
+    S.fails++;
+    pushTick(`EJECTED :: ${this.t.lbl} :: ${reason} :: IDENTITY UNKNOWN`);
+  }
+}
+
+/* ============================================================================
+   NAME ROSTER — the index sweep that never resolves
+   ========================================================================== */
+const SURNAMES=['KOVAC','DELACROIX','OKONKWO','LINDQVIST','HABERMAN','RASHID','VOGEL',
+  'MARCHETTI','ABERNATHY','SOLIS','NAKAMURA','FERREIRA','DRAGOMIR','ELLSWORTH','BAPTISTE',
+  'HOLLANDER','KRISTIANSEN','MWANGI','ANTONOV','QUINTERO','BERGSTROM','FAIRWEATHER','OYELARAN',
+  'STRAND','VUKOVIC','CASTELLANOS','LINDGREN','ABIODUN','PETROV','HALVORSEN','MERCADO',
+  'THORNBURY','ZIELINSKI','ADEYEMI','LAROUSSE','WENTWORTH','KALLIO','BRAGANZA','NIEMINEN'];
+const INITIALS='ABCDEFGHIJKLMNOPRSTVW';
+const randName = ()=>
+  `${pick(SURNAMES)}, ${pick(INITIALS)}.${pick(INITIALS)}.`;
+
+const rosterBody=$('#rosterbody'), rosterCt=$('#rosterct');
+let rosterT=0, rosterRows=0, deepOpen=false;
+
+function rosterTick(){
+  const n=now();
+  if(n<rosterT) return;
+  rosterT = n + rnd(75,165);
+
+  const nm=randName();
+  const hit = !deepOpen && Math.random()<0.045;
+  const row=document.createElement('div');
+  row.className='nrow pending';
+  row.innerHTML=`<span class="nm"></span><span class="vd"></span>`;
+  row.querySelector('.nm').textContent=nm;
+  row.querySelector('.vd').textContent='····';
+  rosterBody.appendChild(row);
+  if(++rosterRows>9){ const f=rosterBody.firstElementChild; if(f) f.remove(); }
+
+  S.checked++;
+  rosterCt.textContent=S.checked.toLocaleString();
+
+  setTimeout(()=>{
+    if(!row.isConnected) return;
+    row.classList.remove('pending');
+    if(hit){
+      row.classList.add('hit');
+      row.querySelector('.vd').textContent='PARTIAL MATCH';
+      openDeepCompare(nm);
+    } else {
+      row.classList.add('no');
+      row.querySelector('.vd').textContent='FALSE';
+    }
+  }, rnd(110,260));
+}
+
+/* a PARTIAL MATCH escalates into its own window, runs, and collapses to FALSE */
+function openDeepCompare(nm){
+  deepOpen=true;
+  const rb=$('#roster').getBoundingClientRect();
+  const t=new Term(`▚ /proc/deepcmp/${irnd(1000,9999)}`, 'amber',
+                   {x:Math.round(rb.right+14), y:Math.round(rb.top)});
+  t.write(`> deepcmp --candidate="${nm}"`);
+  t.write(`  loading registry shard ${irnd(10,99)}/128`,'dimx');
+  const steps=[
+    ()=>[`[  ok  ] shard mounted  ${irnd(2,9)}.${irnd(0,9)}M records`,''],
+    ()=>[`[ .... ] aligning geometry  err ${rnd(.18,.62).toFixed(4)}`,'dimx'],
+    ()=>[hexdump(),'dimx'],
+    ()=>[`[  ok  ] landmark overlap ${irnd(38,71)}%`,''],
+    ()=>[`[ WARN ] source vectors corrupted — reconstructing`,'warn'],
+    ()=>[hexdump(),'dimx'],
+    ()=>[`[ WARN ] reconstruction diverged (${irnd(3,9)} passes)`,'warn'],
+    ()=>[`[ .... ] confidence ${rnd(.0001,.0180).toFixed(4)}`,'dimx'],
+    ()=>[`[ !! ] host ICE rewrote sample mid-compare`,'ice'],
+  ];
+  let i=0;
+  const iv=setInterval(()=>{
+    if(i>=steps.length){
+      clearInterval(iv);
+      t.setProg(1); t.repel();
+      t.write('[ FAIL ] CANDIDATE REJECTED — FALSE','fail');
+      t.write(`SUBJECT: IDENTITY UNKNOWN  REF ${irnd(10000000,99999999)}`,'stamp');
+      pushTick(`DEEPCMP :: ${nm} :: FALSE`);
+      setTimeout(()=>{ t.kill(); deepOpen=false; }, 520);
+      return;
+    }
+    const [txt,cls]=steps[i]();
+    t.write(txt,cls);
+    t.setProg((++i)/steps.length*0.95);
+  }, rnd(130,210));
+}
+
+/* ============================================================================
+   SCHEDULER
+   ========================================================================== */
+let nextSpawn=0;
+function scheduler(){
+  const n=now();
+  S.jobs=S.jobs.filter(j=>j.phase!==PH.DONE);
+
+  if(n>nextSpawn && S.jobs.length<MAX_TERMS){
+    nextSpawn = n + rndOf(SPAWN_GAP);
+    spawn();
+    /* pressure bursts — the intrusion escalates when it keeps losing */
+    if(Math.random()<0.24 && S.jobs.length<MAX_TERMS-2){
+      setTimeout(()=>{ if(S.jobs.length<MAX_TERMS) spawn(); }, rnd(50,140));
+    }
+  }
+  if(n>S.nextVoid){
+    S.nextVoid = n + rnd(4200, 9000);
+    S.voidUntil = n + rnd(220, 620);
+  }
+}
+
+function spawn(){
+  const busy=new Set(S.jobs.map(j=>j.t.k));
+  const live=TARGETS.filter(t=>{
+    const r=S.rois.get(t.k);
+    return r && r.seen && !busy.has(t.k) && !isLocked(t.k);
+  });
+  let pool=live;
+  if(!pool.length){
+    pool=TARGETS.filter(t=>{
+      const r=S.rois.get(t.k);
+      return r && r.seen && !isLocked(t.k);
+    });
+  }
+  if(!pool.length) return;                       // nothing visible — wait
+  /* biometric regions are weighted heavily; if the face is covered the only
+     things left in `pool` are hands, limbs, torso and ambient objects, so it
+     redirects there on its own */
+  const bag=pool.flatMap(t=>t.id?[t,t,t]:[t]);
+  S.jobs.push(new Probe(pick(bag)));
+}
+
+/* ticker ------------------------------------------------------------------- */
+const tickLines=['NODE CAM:127 — HOSTILE INTERROGATE','SUBJECT PERIMETER HOLDING'];
+function pushTick(s){
+  tickLines.push(s); if(tickLines.length>8) tickLines.shift();
+  $('#tickspan').textContent=tickLines.join('   ///   ')+'   ///   ';
+}
+pushTick('AWAITING OPTICAL SENSOR');
+
+/* ============================================================================
+   VECTOR OVERLAY
+   ========================================================================== */
+function drawMesh(){
+  if(!S.face||!S.tess) return;
+  const lms=S.face, voided=now()<S.voidUntil;
+  fctx.save();
+  fctx.lineWidth=1.6; fctx.strokeStyle='rgba(0,12,4,0.28)';
+  fctx.beginPath();
+  const step=voided?1:2;
+  for(let i=0;i<S.tess.length;i+=step){
+    const c=S.tess[i], a=lms[c.start], b=lms[c.end];
+    if(!a||!b) continue;
+    const p=mapPt(a.x,a.y), q=mapPt(b.x,b.y);
+    fctx.moveTo(p.x,p.y); fctx.lineTo(q.x,q.y);
+  }
+  fctx.stroke();
+  fctx.lineWidth=voided?0.85:0.6;
+  fctx.strokeStyle=voided?'rgba(90,255,150,0.95)':'rgba(120,255,175,0.40)';
+  fctx.stroke();
+  fctx.fillStyle=voided?'rgba(220,255,235,.95)':'rgba(200,255,225,.85)';
+  for(let i=0;i<lms.length;i+=voided?6:9){
+    const p=mapPt(lms[i].x,lms[i].y);
+    fctx.fillRect(p.x-1,p.y-1,2,2);
+  }
+  fctx.restore();
+}
+
+const HAND_CONN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                 [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+const POSE_CONN=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24]];
+
+function drawSkeleton(){
+  const voided=now()<S.voidUntil;
+  fctx.save();
+  fctx.strokeStyle=voided?'rgba(90,255,150,.9)':'rgba(0,229,255,.45)';
+  fctx.lineWidth=voided?1.4:1;
+  for(const h of S.hands){
+    fctx.beginPath();
+    for(const [a,b] of HAND_CONN){
+      const p=mapPt(h[a].x,h[a].y), q=mapPt(h[b].x,h[b].y);
+      fctx.moveTo(p.x,p.y); fctx.lineTo(q.x,q.y);
+    }
+    fctx.stroke();
+    fctx.fillStyle=voided?'rgba(200,255,225,.95)':'rgba(180,250,255,.75)';
+    for(const l of h){ const p=mapPt(l.x,l.y); fctx.fillRect(p.x-1.3,p.y-1.3,2.6,2.6); }
+  }
+  if(S.pose){
+    fctx.strokeStyle=voided?'rgba(90,255,150,.85)':'rgba(120,255,175,.35)';
+    fctx.beginPath();
+    for(const [a,b] of POSE_CONN){
+      const A=S.pose[a], B=S.pose[b];
+      if(!A||!B) continue;
+      if((A.visibility??1)<.5||(B.visibility??1)<.5) continue;
+      const p=mapPt(A.x,A.y), q=mapPt(B.x,B.y);
+      fctx.moveTo(p.x,p.y); fctx.lineTo(q.x,q.y);
+    }
+    fctx.stroke();
+  }
+  fctx.restore();
+}
+
+/* boxes only exist while something is happening to them */
+function drawBoxes(){
+  const n=now(), pts=[];
+  fctx.save();
+  fctx.font='8px ui-monospace, monospace';
+
+  for(const j of S.jobs){
+    const r=j.roi(); if(!r||!r.seen) continue;
+    const tag=j.tag;
+    let a=1, col='#eafff1';
+    if(j.phase===PH.INJECT){ a=clamp((n-j.t0)/j.injectDur,0,1); }
+    if(j.phase===PH.EJECT){ a=1-clamp((n-j.t0)/j.ejectDur,0,1); col='#ff6b78'; }
+
+    fctx.globalAlpha=a;
+    fctx.strokeStyle=col; fctx.lineWidth=1.3;
+    fctx.strokeRect(Math.round(r.x)+.5,Math.round(r.y)+.5,Math.round(r.w),Math.round(r.h));
+    fctx.fillStyle=col;
+    fctx.fillText(`['bbox:${hex(tag.id)}'] ${tag.val}`, r.x, r.y-3);
+    fctx.fillText(j.t.lbl, r.x, r.y+r.h+9);
+
+    const c=Math.min(14,r.w*.28,r.h*.28);
+    fctx.lineWidth=2; fctx.beginPath();
+    for(const [X,Y,sx,sy] of [[r.x,r.y,1,1],[r.x+r.w,r.y,-1,1],
+                              [r.x,r.y+r.h,1,-1],[r.x+r.w,r.y+r.h,-1,-1]]){
+      fctx.moveTo(X+sx*c,Y); fctx.lineTo(X,Y); fctx.lineTo(X,Y+sy*c);
+    }
+    fctx.stroke();
+
+    if(j.phase===PH.INJECT){                       // brackets slam inward
+      const p=1-a, o=p*Math.max(50,r.w*.9);
+      fctx.lineWidth=1.5; fctx.strokeStyle=`rgba(255,255,255,${.25+.5*a})`;
+      fctx.beginPath();
+      for(const [X,Y,sx,sy] of [[r.x-o,r.y-o,1,1],[r.x+r.w+o,r.y-o,-1,1],
+                                [r.x-o,r.y+r.h+o,1,-1],[r.x+r.w+o,r.y+r.h+o,-1,-1]]){
+        fctx.moveTo(X+sx*14,Y); fctx.lineTo(X,Y); fctx.lineTo(X,Y+sy*14);
+      }
+      fctx.stroke();
+    }
+    if(j.phase===PH.PROBE){                        // fast sweep, clipped inside
+      const p=((n-j.t0)/240)%1, sy=r.y+p*r.h;
+      fctx.save();
+      fctx.beginPath(); fctx.rect(r.x,r.y,r.w,r.h); fctx.clip();
+      const g=fctx.createLinearGradient(0,sy-8,0,sy+8);
+      g.addColorStop(0,'rgba(234,255,241,0)');
+      g.addColorStop(.5,'rgba(234,255,241,.5)');
+      g.addColorStop(1,'rgba(234,255,241,0)');
+      fctx.fillStyle=g; fctx.fillRect(r.x,sy-8,r.w,16);
+      fctx.restore();
+    }
+    fctx.globalAlpha=1;
+    pts.push({x:r.x+r.w/2,y:r.y+r.h/2});
+  }
+
+  // sealed regions
+  for(const [k,l] of S.locks){
+    const r=S.rois.get(k); if(!r||!r.seen) continue;
+    const left=(l.until-n)/1000;
+    const pulse=.55+.45*Math.sin(n/160);
+    fctx.strokeStyle=`rgba(255,176,0,${pulse.toFixed(3)})`; fctx.lineWidth=1.6;
+    fctx.strokeRect(Math.round(r.x)+.5,Math.round(r.y)+.5,Math.round(r.w),Math.round(r.h));
+    fctx.fillStyle='rgba(255,176,0,.95)';
+    fctx.fillText(`SEALED ${left.toFixed(1)}s / ${l.kind}`, r.x, r.y-3);
+    pts.push({x:r.x+r.w/2,y:r.y+r.h/2});
+  }
+
+  if(pts.length>1){
+    fctx.strokeStyle='rgba(232,255,240,0.11)'; fctx.lineWidth=.6;
+    fctx.beginPath();
+    for(let i=0;i<pts.length;i++){
+      const q=pts[(i+1)%pts.length];
+      fctx.moveTo(pts[i].x,pts[i].y); fctx.lineTo(q.x,q.y);
+    }
+    fctx.stroke();
+  }
+  fctx.restore();
+}
+
+function drawGlobalSweep(){
+  const y=((now()/3600)%1)*S.H;
+  fctx.save();
+  const g=fctx.createLinearGradient(0,y-34,0,y+34);
+  g.addColorStop(0,'rgba(77,255,136,0)');
+  g.addColorStop(.5,'rgba(77,255,136,.07)');
+  g.addColorStop(1,'rgba(77,255,136,0)');
+  fctx.fillStyle=g; fctx.fillRect(0,y-34,S.W,68);
+  fctx.restore();
+}
+
+/* ============================================================================
+   FACE ID PANEL — with its own failure mode
+   ========================================================================== */
+const fidEl=$('#faceid'), fidTtl=$('#fidttl'), leds=$('#leds').children,
+      acqEl=$('#acq'), corruptEl=$('#corrupt');
+
+function panelLogic(){
+  const n=now();
+  const act=S.filters.filter(f=>f.active).length;
+  if(n<S.panelDownUntil) return act;
+  if(S.panelDownUntil && n<S.panelRebootAt) return act;
+  /* too many simultaneous corruptions and the panel itself falls over */
+  if(act>=5 && Math.random()<0.02){
+    S.panelDownUntil=n+rnd(2200,4200);
+    S.panelRebootAt=S.panelDownUntil+900;
+    fidEl.classList.add('down');
+    pushTick('FACE ID SUBSYSTEM FAULT — TOO MANY CORRUPT INSTANCES');
+  }
+  return act;
+}
+
+function drawMeshPanel(){
+  const w=meshcv.width/S.dpr, h=meshcv.height/S.dpr, n=now();
+  const down=n<S.panelDownUntil, rebooting=!down && n<S.panelRebootAt;
+
+  if(down){
+    fidTtl.textContent='FACE ID — FAULT';
+    const img=mctx.createImageData(Math.round(w*S.dpr),Math.round(h*S.dpr));
+    const d=img.data;
+    for(let i=0;i<d.length;i+=4){
+      const v=Math.random()<.5?0:irnd(30,120);
+      d[i]=v*.3; d[i+1]=v; d[i+2]=v*.5; d[i+3]=255;
+    }
+    mctx.save(); mctx.setTransform(1,0,0,1,0,0);
+    mctx.putImageData(img,0,0); mctx.restore();
+    mctx.fillStyle='rgba(255,45,63,.95)'; mctx.font='9px ui-monospace, monospace';
+    mctx.fillText('SUBSYSTEM FAULT',10,h/2-4);
+    mctx.fillText(`CORRUPT OVERFLOW ${irnd(6,14)}`,10,h/2+9);
+    return;
+  }
+  if(rebooting){
+    fidEl.classList.remove('down');
+    fidTtl.textContent='FACE ID — REBOOT';
+    mctx.fillStyle='#000'; mctx.fillRect(0,0,w,h);
+    const p=1-(S.panelRebootAt-n)/900;
+    mctx.fillStyle='rgba(77,255,136,.35)';
+    mctx.fillRect(0,h*p-3,w,3);
+    mctx.fillStyle='rgba(77,255,136,.9)'; mctx.font='9px ui-monospace, monospace';
+    mctx.fillText('REINITIALISING MESH…',10,h/2);
+    return;
+  }
+
+  fidTtl.textContent='FACE ID — TRACKING';
+  mctx.fillStyle='#000'; mctx.fillRect(0,0,w,h);
+  const lms=S.face;
+  if(!lms||!S.tess){
+    mctx.fillStyle='rgba(28,122,61,.9)'; mctx.font='8px ui-monospace, monospace';
+    mctx.fillText('NO FACIAL DATA — REDIRECTING',8,h/2-5);
+    mctx.fillText(`TRACKING ${S.hands.length} HAND / ${S.pose?'FRAME':'—'}`,8,h/2+8);
+    return;
+  }
+  let x0=1,y0=1,x1=0,y1=0;
+  for(const p of lms){ if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }
+  const sw=x1-x0, sh=y1-y0, s=Math.min(w*.82/sw, h*.86/sh);
+  const ox=w/2-sw*s/2, oy=h/2-sh*s/2;
+  const P=i=>({x:ox+(1-((lms[i].x-x0)/sw))*sw*s, y:oy+((lms[i].y-y0)/sh)*sh*s});
+  mctx.strokeStyle='rgba(77,255,136,.38)'; mctx.lineWidth=.4;
+  mctx.beginPath();
+  for(let i=0;i<S.tess.length;i+=2){
+    const c=S.tess[i], a=P(c.start), b=P(c.end);
+    mctx.moveTo(a.x,a.y); mctx.lineTo(b.x,b.y);
+  }
+  mctx.stroke();
+  mctx.fillStyle='rgba(190,255,215,.8)';
+  for(let i=0;i<lms.length;i+=14){ const p=P(i); mctx.fillRect(p.x-.7,p.y-.7,1.4,1.4); }
+  const act=S.filters.filter(f=>f.active).length;
+  for(let i=0;i<act*3;i++){
+    mctx.fillStyle=`rgba(255,45,63,${rnd(.08,.30)})`;
+    mctx.fillRect(0,rnd(0,h),w,rnd(1,3));
+  }
+  for(const [k] of S.locks){
+    if(FACE_IDX[k]||k==='face_full'||k==='mesh'){
+      mctx.fillStyle='rgba(255,176,0,.14)'; mctx.fillRect(0,0,w,h);
+      break;
+    }
+  }
+}
+
+/* ============================================================================
+   HUD (throttled — DOM writes at 60fps are the enemy of smoothness)
+   ========================================================================== */
+const lcdrow=$('#lcdrow'), rectime=$('#rectime'), trk=$('#trk');
+function hudTick(){
+  const d=new Date();
+  lcdrow.textContent=`${pad(d.getMonth()+1)}/${pad(d.getDate())}/${d.getFullYear()} `+
+                     `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const el=(now()-S.t0)/1000;
+  rectime.textContent=`${pad(Math.floor(el/3600))}:${pad(Math.floor(el/60)%60)}:${pad(Math.floor(el)%60)}`;
+  const seen=S.face&&(now()-S.subjectSeen<300);
+  trk.textContent = seen ? 'SUBJECT LOCKED'
+    : S.hands.length ? 'FACE OBSCURED / EXTREMITY'
+    : S.pose ? 'FACE OBSCURED / FRAME'
+    : 'SEARCHING';
+  acqEl.textContent = seen?'TARGET ACQUIRED':'NO FACIAL TARGET';
+  const act=S.filters.filter(f=>f.active).length;
+  corruptEl.textContent = act?`CORRUPT x${act}`:'CLEAN';
+  corruptEl.style.color = act>=4?'var(--crimson)':act?'var(--amber)':'var(--phos-dim)';
+  for(let i=0;i<3;i++) leds[i].classList.toggle('on', seen && act<=i);
+  $('#fps').textContent=S.fps.toFixed(0)+'fps';
+  $('#procs').textContent=S.jobs.length;
+  $('#lockct').textContent=S.locks.size;
+  $('#failct').textContent=S.fails.toLocaleString();
+  $('#icest').textContent = S.locks.size ? `SEALING x${S.locks.size}` : 'SENTINEL ACTIVE';
+}
+
+/* ============================================================================
+   INFERENCE — staggered so at most one model runs per frame
+   ========================================================================== */
+let faceLM=null, handLM=null, poseLM=null;
+const due={face:0, hand:0, pose:0};
+const RATE={face:33, hand:70, pose:110};
+let tsSeq=0;
+
+function inferTick(n){
+  if(video.readyState<2) return;
+  let best=null, worst=0;
+  for(const k of ['face','hand','pose']){
+    const lm={face:faceLM,hand:handLM,pose:poseLM}[k];
+    if(!lm) continue;
+    const over=n-due[k];
+    if(over>0 && over>worst){ worst=over; best=k; }
+  }
+  if(!best) return;
+  due[best]=n+RATE[best];
+  const ts=Math.round(n)*4 + (++tsSeq%4);   // strictly increasing per landmarker
+  try{
+    if(best==='face'){
+      const r=faceLM.detectForVideo(video,ts);
+      S.face=(r.faceLandmarks&&r.faceLandmarks[0])||null;
+    } else if(best==='hand'){
+      const r=handLM.detectForVideo(video,ts);
+      S.hands=r.landmarks||[];
+    } else {
+      const r=poseLM.detectForVideo(video,ts);
+      S.pose=(r.landmarks&&r.landmarks[0])||null;
+    }
+  }catch(e){ /* transient */ }
+}
+
+/* ============================================================================
+   MAIN LOOP
+   ========================================================================== */
+let hudT=0, panelT=0;
+
+function frame(){
+  requestAnimationFrame(frame);
+  if(!S.running) return;
+  const n=now();
+  const dt=Math.min(n-(S.lastFrame||n), 100);
+  S.lastFrame=n;
+
+  S.frames++;
+  if(n-S.fpsT>420){ S.fps=S.frames*1000/(n-S.fpsT); S.frames=0; S.fpsT=n; }
+
+  /* time-constant smoothing: identical feel at 30fps or 144fps */
+  smoothA = 1 - Math.exp(-dt/48);
+
+  if(video.readyState>=2 && S.vw!==video.videoWidth){
+    S.vw=video.videoWidth; S.vh=video.videoHeight;
+    $('#res').textContent=`${S.vw}x${S.vh}`;
+  }
+  computeMap();
+
+  if(faceLM||handLM||poseLM) inferTick(n);
+  else if(video.readyState>=2) synthTrack(n);
+
+  rebuildROIs();
+  pruneLocks();
+  scheduler();
+  for(const j of S.jobs) j.update();
+  rosterTick();
+  flushWrites(dt);
+
+  const voided = n<S.voidUntil;
+  fctx.setTransform(S.dpr,0,0,S.dpr,0,0);
+  fctx.fillStyle='#040705'; fctx.fillRect(0,0,S.W,S.H);
+
+  if(!voided && video.readyState>=2){
+    fctx.save();
+    fctx.filter='saturate(.62) contrast(1.16) brightness(.94)';
+    fctx.translate(S.map.dx+S.map.dw, S.map.dy);
+    fctx.scale(-1,1);
+    fctx.drawImage(video,0,0,S.map.dw,S.map.dh);
+    fctx.restore();
+  }
+
+  S.filters=S.filters.filter(f=>!f.dead);
+  if(!voided){
+    fxBudgetForFrame();
+    for(const f of S.filters) f.apply();
+  }
+
+  if(!voided) drawGlobalSweep();
+  drawMesh();
+  drawSkeleton();
+  if(!voided) drawBoxes();
+
+  if(voided){
+    fctx.save();
+    fctx.fillStyle='rgba(234,255,241,.85)'; fctx.font='10px ui-monospace, monospace';
+    fctx.textAlign='center';
+    fctx.fillText('OPTICAL CHANNEL SEVERED — VECTOR LAYER ONLY', S.W/2, 128);
+    fctx.restore();
+  }
+
+  if(n-panelT>33){ panelT=n; panelLogic(); drawMeshPanel(); }
+  if(n-hudT>100){ hudT=n; hudTick(); }
+}
+
+/* --------------------------------------------- offline heuristic fallback -- */
+function synthTrack(n){
+  const t=n/1000;
+  const cx=.5+Math.sin(t*.31)*.09+Math.sin(t*.13)*.04, cy=.44+Math.cos(t*.24)*.06;
+  const sc=.17+Math.sin(t*.19)*.012;
+  const mk=(dx,dy)=>({x:cx+dx*sc, y:cy+dy*sc*1.25, z:0});
+  const pts=new Array(478);
+  for(let i=0;i<478;i++){
+    const a=i*2.399963, r=Math.sqrt(i/478);
+    pts[i]=mk(Math.cos(a)*r*.9, Math.sin(a)*r*1.15);
+  }
+  const put=(idx,dx,dy)=>{ for(const i of idx) if(pts[i]) pts[i]=mk(dx+rnd(-.06,.06), dy+rnd(-.05,.05)); };
+  put(FACE_IDX.eye_r,-.42,-.20); put(FACE_IDX.eye_l,.42,-.20);
+  put(FACE_IDX.iris_r,-.42,-.20); put(FACE_IDX.iris_l,.42,-.20);
+  put(FACE_IDX.brow,0,-.44); put(FACE_IDX.nose,0,.06);
+  put(FACE_IDX.mouth,0,.46); put(FACE_IDX.jaw,0,.78);
+  put(FACE_IDX.ear_r,-.92,.02); put(FACE_IDX.ear_l,.92,.02);
+  put(FACE_IDX.temple_r,-.80,-.55); put(FACE_IDX.temple_l,.80,-.55);
+  S.face=pts; S.subjectSeen=n;
+  S.hands=[synthHand(t,.22,.78,1), synthHand(t*1.13+2,.78,.74,-1)];
+  const sp=new Array(33).fill(null);
+  const sh=(i,x,y)=>sp[i]={x,y,z:0,visibility:1};
+  sh(0,cx,cy); sh(11,cx-.14,cy+.30); sh(12,cx+.14,cy+.30);
+  sh(13,cx-.20,cy+.48); sh(14,cx+.20,cy+.48);
+  sh(15,cx-.24,cy+.64); sh(16,cx+.24,cy+.64);
+  sh(23,cx-.10,cy+.66); sh(24,cx+.10,cy+.66);
+  S.pose=sp;
+}
+function synthHand(t,bx,by,dir){
+  const h=[], ox=bx+Math.sin(t*.47)*.05*dir, oy=by+Math.cos(t*.39)*.045;
+  for(let i=0;i<21;i++){
+    const a=(i/21)*Math.PI*1.4-.7;
+    h.push({x:ox+Math.cos(a)*.045*dir+rnd(-.004,.004),
+            y:oy-Math.sin(a)*.06+rnd(-.004,.004), z:0});
+  }
+  return h;
+}
+function buildSynthTess(){
+  const t=[];
+  for(let i=0;i<478;i++){
+    t.push({start:i,end:(i+1)%478}); t.push({start:i,end:(i+11)%478});
+    if(i%3===0) t.push({start:i,end:(i+37)%478});
+  }
+  return t;
+}
+
+/* ============================================================================
+   BOOT
+   ========================================================================== */
+const bootlog=$('#bootlog');
+const blog=(s,ok=true)=>{ bootlog.textContent+=(ok?'[  ok  ] ':'[ FAIL ] ')+s+'\n'; };
+
+async function start(){
+  const btn=$('#go');
+  btn.disabled=true; btn.textContent='> INITIALIZING…';
+  S.sess=Array.from({length:4},()=>hex(irnd(0,255))).join('');
+  $('#sess').textContent=S.sess;
+  $('#camid').textContent='CAM:'+irnd(100,199);
+
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{ width:{ideal:1280}, height:{ideal:720},
+              frameRate:{ideal:60, min:30}, facingMode:'user' },
+      audio:false
+    });
+    video.srcObject=stream; await video.play();
+    const st=stream.getVideoTracks()[0].getSettings();
+    blog(`optical sensor acquired — ${st.width}x${st.height} @${Math.round(st.frameRate||0)}fps`);
+  }catch(e){
+    blog('optical sensor DENIED — '+(e.name||e), false);
+    bootlog.textContent+='\nGrant camera access and reload.\n';
+    btn.disabled=false; btn.textContent='> RETRY';
+    return;
+  }
+
+  blog('loading landmark models…');
+  try{
+    const vision=await import(MP_BUNDLE);
+    const fs=await vision.FilesetResolver.forVisionTasks(MP_WASM);
+    faceLM=await vision.FaceLandmarker.createFromOptions(fs,{
+      baseOptions:{modelAssetPath:MP_FACE, delegate:'GPU'},
+      runningMode:'VIDEO', numFaces:1,
+      outputFaceBlendshapes:false, outputFacialTransformationMatrixes:false});
+    S.tess=vision.FaceLandmarker.FACE_LANDMARKS_TESSELATION;
+    blog('face landmarker online — 478 points');
+    try{
+      handLM=await vision.HandLandmarker.createFromOptions(fs,{
+        baseOptions:{modelAssetPath:MP_HAND, delegate:'GPU'},
+        runningMode:'VIDEO', numHands:2});
+      blog('hand landmarker online — 21x2 points');
+    }catch(e){ blog('hand landmarker unavailable',false); }
+    try{
+      poseLM=await vision.PoseLandmarker.createFromOptions(fs,{
+        baseOptions:{modelAssetPath:MP_POSE, delegate:'GPU'},
+        runningMode:'VIDEO', numPoses:1, outputSegmentationMasks:false});
+      blog('pose landmarker online — shoulders / thorax / limbs');
+    }catch(e){ blog('pose landmarker unavailable',false); }
+  }catch(e){
+    S.degraded=true; faceLM=handLM=poseLM=null;
+    S.tess=buildSynthTess();
+    blog('landmark CDN unreachable — heuristic mode',false);
+    $('#sensor').textContent='SENSOR DEGRADED / HEURISTIC';
+    $('#sensor').style.color='var(--amber)';
+  }
+
+  blog('host countermeasures: SENTINEL armed');
+  await new Promise(r=>setTimeout(r,320));
+
+  resize();
+  S.t0=now(); S.fpsT=now(); S.lastFrame=now();
+  S.nextVoid=now()+rnd(3000,7000);
+  S.running=true;
+  $('#boot').classList.add('gone');
+  setTimeout(()=>$('#boot').remove(),600);
+  setTimeout(()=>$('#keys').classList.add('fade'),6000);
+  pushTick('INTRUSION ACTIVE — TARGET: IDENTITY');
+}
+
+$('#go').addEventListener('click', start);
+addEventListener('keydown', e=>{
+  const k=e.key.toLowerCase();
+  if(k==='h') $('#hud').classList.toggle('hidden');
+  if(k==='t') termHost.style.display = termHost.style.display==='none'?'':'none';
+  if(k==='v') S.voidUntil=now()+700;
+  if(k==='f'){ document.fullscreenElement?document.exitFullscreen()
+                                         :document.documentElement.requestFullscreen(); }
+  if(e.key==='Escape'){
+    S.running=false;
+    const s=video.srcObject; if(s) s.getTracks().forEach(t=>t.stop());
+    termHost.innerHTML='';
+    fctx.fillStyle='#040705'; fctx.fillRect(0,0,S.W,S.H);
+    fctx.fillStyle='#4dff88'; fctx.font='11px ui-monospace, monospace';
+    fctx.textAlign='left';
+    fctx.fillText('SESSION HALTED — PERIMETER HELD',24,40);
+    fctx.fillText(`VECTORS EJECTED: ${S.fails}`,24,58);
+    fctx.fillText(`REGISTRY ROWS CHECKED: ${S.checked} — ALL FALSE`,24,76);
+    fctx.fillText('SUBJECT: IDENTITY UNKNOWN',24,94);
+  }
+});
+
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

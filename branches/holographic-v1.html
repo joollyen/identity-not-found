@@ -1,0 +1,2043 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>IDENTITY UNKNOWN — Prototype v1 · Holographic Branch</title>
+<style>
+  :root{
+    --bg:#05070a;
+    --amber:#ffb228;
+    --amber-hot:#ffd660;
+    --red:#ff3a48;
+    --ink:#cfd8dc;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);}
+  body{
+    font-family:ui-monospace,"SF Mono","Ubuntu Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    cursor:default;
+  }
+  #stage{position:fixed;inset:0;}
+  canvas#c{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  video#v{position:fixed;left:-4px;top:-4px;width:1px;height:1px;opacity:0.001;pointer-events:none;}
+
+  /* ---------- boot gate ---------- */
+  #gate{
+    position:fixed;inset:0;z-index:20;
+    background:radial-gradient(120% 90% at 50% 42%, #0a0f14 0%, #05070a 62%, #020304 100%);
+    display:flex;align-items:center;justify-content:center;
+    transition:opacity .55s ease;
+  }
+  #gate.gone{opacity:0;pointer-events:none;}
+  #gatebox{width:min(680px,88vw);}
+  #brand{
+    font-size:11px;letter-spacing:.42em;color:#5d6b73;margin-bottom:18px;text-transform:uppercase;
+  }
+  #title{
+    font-size:clamp(20px,3.4vw,32px);letter-spacing:.13em;color:#e7eef2;margin-bottom:6px;
+  }
+  #sub{font-size:12px;letter-spacing:.16em;color:#5d6b73;margin-bottom:30px;}
+  #go{
+    appearance:none;border:1px solid rgba(255,178,40,.42);background:rgba(255,178,40,.05);
+    color:var(--amber);font:inherit;font-size:13px;letter-spacing:.18em;
+    padding:13px 22px;cursor:pointer;transition:.16s ease;
+  }
+  #go:hover{background:rgba(255,178,40,.13);border-color:rgba(255,178,40,.8);color:var(--amber-hot);}
+  #go:disabled{opacity:.4;cursor:progress;}
+  #log{
+    margin-top:26px;font-size:11.5px;line-height:1.65;color:#4d5a62;
+    height:150px;overflow:hidden;white-space:pre;
+  }
+  #log b{color:#8fa0a8;font-weight:400}
+  #log i{color:var(--amber);font-style:normal}
+  #log s{color:var(--red);text-decoration:none}
+  #keys{
+    position:fixed;left:0;right:0;bottom:16px;z-index:21;text-align:center;
+    font-size:10px;letter-spacing:.22em;color:#3b464d;
+  }
+  #gate.gone ~ #keys{opacity:0;transition:opacity .4s ease .2s}
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="c"></canvas>
+</div>
+<video id="v" playsinline muted autoplay></video>
+
+<div id="gate">
+  <div id="gatebox">
+    <div id="brand">Identity Unknown</div>
+    <div id="title">PROTOTYPE VER.1</div>
+    <div id="sub">HOLOGRAPHIC BRANCH &nbsp;·&nbsp; TOPOLOGY PROJECTION</div>
+    <button id="go">&gt; INITIALIZE OPTICAL SENSOR</button>
+    <div id="log"></div>
+  </div>
+</div>
+<div id="keys">[H] HUD &nbsp; [B] INK &nbsp; [N] GRAIN &nbsp; [R] REMAP &nbsp; [G] FORCE PROJECTION &nbsp; [F] FULLSCREEN &nbsp; [ESC] HALT</div>
+
+<script type="module">
+/* ==========================================================================
+   IDENTITY UNKNOWN — PROTOTYPE VER.1   ·   holographic branch
+   --------------------------------------------------------------------------
+   Lineage: prototype v8 (see PROTOTYPE_V8_HANDOFF.md).
+   What carried over : patch-by-patch reconstruction, slot-stable hand
+                       pipeline with velocity-carried easing, span-normalised
+                       gesture read, the amber/red ink, minimal frame.
+   What was cut      : every corruption filter (MOSAIC/DISSOLVE/INTERLACE/
+                       DATAMOSH/BLOOM/GRID/GLYPH), the damage model
+                       (tear/scar/necrosis/debris), probes, seals, crush,
+                       optical dropouts, terminals, registry, mirror bus.
+   What is new       : the projection. Once the topology is complete the
+                       subject can cup a hand into frame and the machine
+                       hands the model back — a rotating hologram of their
+                       own facial structure, standing over the palm.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- 0. tunables */
+
+const DPR_CAP        = 1.75;
+
+// detector cadence (ms) — the hand is the fastest because it is the only
+// thing the subject is actively steering.
+const RATE           = { face: 34, hand: 22 };
+
+// face reconstruction
+const GRID_X = 6, GRID_Y = 9;              // 54 patches
+const PATCHES        = GRID_X * GRID_Y;
+const BUILD_HEADS    = 5;                  // patches under construction at once
+const BUILD_MS       = 165;                // ms to knit one patch
+const LOST_GRACE     = 3400;               // ms without a face before decay
+const DECAY_MS       = 2200;               // ms for the topology to fall apart
+
+// mesh ink
+const MESH_A_MAP     = 1.00;               // while it is still assembling
+const MESH_A_DONE    = 0.115;              // once complete — barely there
+const CONT_A_MAP     = 1.00;
+const CONT_A_DONE    = 0.165;              // red keeps a touch more legibility
+const FADE_MS        = 1500;               // ease down after completion
+
+// hand pipeline
+const HAND_EASE      = 46;                 // ms time constant
+const HAND_LEAD      = 0.35;               // fraction of sample velocity carried
+const HAND_HOLD      = 260;                // ms a slot survives without detection
+const BONE_MS        = 46;                 // ms to knit one bone — fast
+const BONE_STAGGER   = 26;                 // ms between bones down a chain
+const TRAIL_MAX      = 14;
+const ECHO_MAX       = 7;
+const ECHO_GAP       = 42;                 // ms between motion echoes
+const FAST_V         = 900;                // px/s that counts as "moving"
+
+// projection
+const HOLO_ARM_MS    = 520;                // hold the cup before it commits
+const HOLO_IN_MS     = 980;                // materialise
+const HOLO_OUT_MS    = 460;
+const HOLO_SPIN      = 0.30;               // rad/s idle
+const HOLO_STEER     = 0.0042;             // rad per px of palm travel
+const OPEN_MIN       = 3;                  // extended fingers required
+
+const BG             = '#05070a';
+
+// palette — amber ramp for the tessellation, crimson for the feature contours
+const AMB_DIM = [255,178,40], AMB_HOT = [255,214,96], AMB_NODE = [255,240,190];
+const RED_LINE = [255,58,72], RED_HOT = [255,126,112], RED_DEEP = [188,26,40];
+
+const rgba = (c,a)=>`rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+/* ---------------------------------------------------------------- 1. helpers */
+
+const cv  = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha:false, desynchronized:true });
+const vid = document.getElementById('v');
+const gate= document.getElementById('gate');
+const logEl=document.getElementById('log');
+const goBtn=document.getElementById('go');
+
+let W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+  W = Math.floor(window.innerWidth);
+  H = Math.floor(window.innerHeight);
+  cv.width  = Math.floor(W * DPR);
+  cv.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  FIT.ok = false;
+  makeGrain();
+}
+window.addEventListener('resize', resize);
+
+const clamp = (v,a,b)=> v<a?a:(v>b?b:v);
+const lerp  = (a,b,t)=> a + (b-a)*t;
+const rnd   = (a,b)=> a + Math.random()*(b-a);
+const rint  = (a,b)=> Math.floor(rnd(a,b+1));
+// exponential smoothing that is honest about frame time
+const sm    = (cur,tgt,ms,dt)=> cur + (tgt-cur)*(1-Math.exp(-dt/Math.max(1,ms)));
+const ease  = t => t<0?0 : t>1?1 : t*t*(3-2*t);
+
+function logLine(html){
+  logEl.innerHTML += html + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+  const lines = logEl.innerHTML.split('\n');
+  if (lines.length > 9) logEl.innerHTML = lines.slice(-9).join('\n');
+}
+
+/* ---------------------------------------------------- 2. landmark index sets */
+/* Ordered rings. These carry the crimson read — the eyes, the mouth, the
+   jawline, the iris. Everything else is the amber tessellation, and that is
+   computed from the subject's own geometry rather than shipped as a table. */
+
+const C_OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,
+                400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
+const C_EYE_R = [33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246];
+const C_EYE_L = [263,249,390,373,374,380,381,382,362,398,384,385,386,387,388,466];
+const C_BROW_R= [70,63,105,66,107,55,65,52,53,46];
+const C_BROW_L= [300,293,334,296,336,285,295,282,283,276];
+const C_LIP_O = [61,146,91,181,84,17,314,405,321,375,291,409,270,269,267,0,37,39,40,185];
+const C_LIP_I = [78,95,88,178,87,14,317,402,318,324,308,415,310,311,312,13,82,81,80,191];
+const C_IRIS_R= [469,470,471,472];
+const C_IRIS_L= [474,475,476,477];
+const C_NOSE  = [168,6,197,195,5,4,1];
+const C_NOSTR = [98,97,2,326,327];
+
+/* The default topology: hand-written rings, used when the library is not
+   there. If MediaPipe does load it hands over its own authoritative
+   tessellation and contour sets and these are replaced wholesale — see
+   adoptTopology(). Both shapes are the same: a list of ordered index paths. */
+const ring  = idx => ({ idx, closed:true });
+const strip = idx => ({ idx, closed:false });
+
+let CONTOURS = [
+  { paths:[ring(C_OVAL)],   w:1.55, tone:0 },
+  { paths:[ring(C_EYE_R)],  w:1.35, tone:1 },
+  { paths:[ring(C_EYE_L)],  w:1.35, tone:1 },
+  { paths:[ring(C_BROW_R)], w:1.05, tone:0 },
+  { paths:[ring(C_BROW_L)], w:1.05, tone:0 },
+  { paths:[ring(C_LIP_O)],  w:1.30, tone:1 },
+  { paths:[ring(C_LIP_I)],  w:1.05, tone:0 },
+  { paths:[strip(C_NOSE)],  w:1.10, tone:0 },
+  { paths:[strip(C_NOSTR)], w:1.00, tone:0 },
+];
+let IRISES = [ C_IRIS_R, C_IRIS_L ];
+
+// the real face mesh, once the library gives it to us; null means "triangulate
+// the subject's own landmark cloud instead"
+let TESS = null;
+
+/* MediaPipe hands out its connection sets as {start,end} pairs, and they are
+   NOT consistently wound: an eye arrives as an upper lid and a lower lid
+   pointing at each other, so following `start -> end` snaps every ring into
+   two half-arcs. Chain them undirected and walk both ways from the seed, and
+   an eye comes back as one ring of 16 and LIPS as two rings of 20 — outer and
+   inner — which is what they are. */
+function chainLoops(conn){
+  const adj = new Map();
+  const add = (a,b)=>{ if(!adj.has(a)) adj.set(a,[]); adj.get(a).push(b); };
+  for (const c of conn){ add(c.start,c.end); add(c.end,c.start); }
+  const ek = (a,b)=> a<b ? a+'_'+b : b+'_'+a;
+  const used = new Set();
+  const step = (from)=>{
+    for (const o of (adj.get(from)||[])) if (!used.has(ek(from,o))) return o;
+    return undefined;
+  };
+  const paths = [];
+  for (const c of conn){
+    if (used.has(ek(c.start,c.end))) continue;
+    used.add(ek(c.start,c.end));
+    const path = [c.start, c.end];
+    let cur = c.end, guard = 0;
+    while (guard++ < 800){
+      const nx = step(cur);
+      if (nx === undefined) break;
+      used.add(ek(cur,nx));
+      path.push(nx);
+      cur = nx;
+      if (nx === path[0]) break;
+    }
+    if (path[path.length-1] !== path[0]){
+      // the seed may have been mid-chain; run the other way too
+      let head = path[0]; guard = 0;
+      while (guard++ < 800){
+        const nx = step(head);
+        if (nx === undefined) break;
+        used.add(ek(head,nx));
+        path.unshift(nx);
+        head = nx;
+        if (nx === path[path.length-1]) break;
+      }
+    }
+    const closed = path.length > 3 && path[0] === path[path.length-1];
+    if (closed) path.pop();
+    if (path.length > 2) paths.push({ idx:path, closed });
+  }
+  return paths;
+}
+const uniqEnds = conn => Array.from(new Set(conn.flatMap(c=>[c.start,c.end])));
+
+function adoptTopology(F){
+  if (!F || !F.FACE_LANDMARKS_TESSELATION) return false;
+  // dedupe the tessellation into undirected edges
+  const seen = new Set(), e = [];
+  for (const c of F.FACE_LANDMARKS_TESSELATION){
+    const k = c.start < c.end ? c.start*1000+c.end : c.end*1000+c.start;
+    if (seen.has(k)) continue;
+    seen.add(k); e.push(c.start, c.end);
+  }
+  TESS = Int32Array.from(e);
+  CONTOURS = [
+    { paths:chainLoops(F.FACE_LANDMARKS_FACE_OVAL),     w:1.55, tone:0 },
+    { paths:chainLoops(F.FACE_LANDMARKS_RIGHT_EYE),     w:1.35, tone:1 },
+    { paths:chainLoops(F.FACE_LANDMARKS_LEFT_EYE),      w:1.35, tone:1 },
+    { paths:chainLoops(F.FACE_LANDMARKS_RIGHT_EYEBROW), w:1.05, tone:0 },
+    { paths:chainLoops(F.FACE_LANDMARKS_LEFT_EYEBROW),  w:1.05, tone:0 },
+    { paths:chainLoops(F.FACE_LANDMARKS_LIPS),          w:1.25, tone:1 },
+    { paths:[strip(C_NOSE)],                            w:1.10, tone:0 },
+    { paths:[strip(C_NOSTR)],                           w:1.00, tone:0 },
+  ];
+  IRISES = [ uniqEnds(F.FACE_LANDMARKS_RIGHT_IRIS), uniqEnds(F.FACE_LANDMARKS_LEFT_IRIS) ];
+  return true;
+}
+
+// hand skeleton — 21 landmarks, knitted outward from the wrist
+const BONES = [
+  [0,1],[1,2],[2,3],[3,4],            // thumb
+  [0,5],[5,6],[6,7],[7,8],            // index
+  [5,9],[9,10],[10,11],[11,12],       // middle
+  [9,13],[13,14],[14,15],[15,16],     // ring
+  [13,17],[17,18],[18,19],[19,20],    // pinky
+  [0,17]                              // palm close
+];
+const TIPS = [4,8,12,16,20];
+const PALM_SET = [0,5,9,13,17];
+
+/* ------------------------------------------------------------- 3. the state */
+
+const S = {
+  started:false, degraded:false, halted:false,
+  t0:0, now:0, dt:16, fps:60, fpsA:60,
+  ink:1, hud:true, grain:true, grade:true,
+
+  faceRaw:null,          // latest normalised landmarks straight off the model
+  facePx:null,           // same, resolved into canvas pixels (mirrored)
+  faceAt:-1e9,
+  faceBox:null,
+
+  hands:[null,null],
+  handsAt:-1e9,
+
+  phase:'acquiring',     // acquiring | mapping | mapped
+  banner:'', bannerAt:-1e9,
+};
+
+/* face reconstruction — the v8 patch model with every damage layer removed.
+   What is left is the honest half: a thing being assembled. */
+const REC = {
+  ready:false,
+  edges:null,            // Int32Array pairs from the runtime triangulation
+  edgeN:0,
+  cell:null,             // Int16Array — landmark -> patch
+  built:new Float32Array(PATCHES),
+  queue:[], heads:[],
+  progress:0,
+  complete:false, completeAt:-1e9,
+  meshA:MESH_A_MAP, contA:CONT_A_MAP,
+  decaying:false,
+  sweep:0,
+};
+
+/* the projection */
+const HOLO = {
+  state:'off',           // off | arming | in | on | out
+  p:0,                   // 0..1 presence
+  arm:0,
+  cx:0, cy:0, r:0,
+  tcx:0, tcy:0, tr:0,
+  yaw:0, pitch:0, roll:0,
+  osc:0, steer:0, tilt:0,
+  twoHand:false,
+  model:null,            // Float32Array(N*3) — centred, unit scale
+  modelN:0,
+  born:0,
+  sweepY:0, sweepDir:1,
+  motes:[],
+  beam:0,                // transfer beam 1 -> 0 on birth
+  glyphs:[],
+  flick:1,
+};
+
+/* --------------------------------------------------------- 4. camera + models */
+
+let faceLm = null, handLm = null;
+let lastFaceTs = 0, lastHandTs = 0;
+let nextFace = 0, nextHand = 0;
+
+// ?synth=1 skips the camera and the CDN entirely and runs the procedural
+// track — the whole piece, demonstrable on a machine with no webcam.
+const FORCE_SYNTH = /[?&]synth=1/.test(location.search);
+
+async function boot(){
+  goBtn.disabled = true;
+  goBtn.textContent = '> NEGOTIATING SENSOR…';
+
+  if (FORCE_SYNTH){
+    S.degraded = true;
+    logLine('<i>track</i> procedural — sensor and models bypassed');
+    logLine('<b>rig</b> reconstruction armed');
+    S.started = true; S.t0 = performance.now();
+    gate.classList.add('gone');
+    setTimeout(()=>{ gate.style.display='none'; }, 700);
+    return;
+  }
+
+  logLine('<b>sensor</b> requesting optical channel');
+
+  let stream = null;
+  try{
+    // every constraint is `ideal`, never `min` — a hard floor on frameRate makes
+    // getUserMedia throw OverconstrainedError on cameras that cannot meet it,
+    // which denies the sensor outright instead of just running slower.
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:60}, facingMode:'user' },
+      audio:false
+    });
+  }catch(e){
+    logLine('<s>sensor</s> constrained request refused — retrying bare');
+    try{ stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false}); }
+    catch(e2){
+      logLine('<s>sensor</s> optical channel denied :: ' + (e2 && e2.name || 'error'));
+      logLine('<i>fallback</i> engaging procedural track');
+      S.degraded = true;
+    }
+  }
+
+  if (stream){
+    vid.srcObject = stream;
+    await vid.play().catch(()=>{});
+    await new Promise(r=>{
+      if (vid.videoWidth) return r();
+      vid.onloadedmetadata = ()=>r();
+      setTimeout(r, 2500);
+    });
+    logLine(`<b>sensor</b> online :: ${vid.videoWidth}×${vid.videoHeight}`);
+  }
+
+  goBtn.textContent = '> LOADING TOPOLOGY MODELS…';
+  logLine('<b>models</b> pulling tasks-vision bundle');
+  try{
+    const V = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+    const fs = await V.FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+
+    faceLm = await V.FaceLandmarker.createFromOptions(fs,{
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate:'GPU'
+      },
+      runningMode:'VIDEO', numFaces:1,
+      outputFaceBlendshapes:false, outputFacialTransformationMatrixes:false
+    });
+    logLine('<i>models</i> face_landmarker :: 478 pt');
+    if (adoptTopology(V.FaceLandmarker))
+      logLine(`<i>topology</i> canonical mesh :: ${TESS.length/2} edges`);
+    else
+      logLine('<b>topology</b> no canonical mesh — triangulating the subject');
+
+    handLm = await V.HandLandmarker.createFromOptions(fs,{
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate:'GPU'
+      },
+      runningMode:'VIDEO', numHands:2
+    });
+    logLine('<i>models</i> hand_landmarker :: 21 pt ×2');
+  }catch(e){
+    logLine('<s>models</s> bundle unreachable — ' + (e && e.message ? e.message.slice(0,54) : 'network'));
+    logLine('<i>fallback</i> procedural track engaged; nothing fails');
+    S.degraded = true;
+  }
+
+  logLine('<b>rig</b> reconstruction armed — waiting on a subject');
+  S.started = true;
+  S.t0 = performance.now();
+  gate.classList.add('gone');
+  setTimeout(()=>{ gate.style.display='none'; }, 700);
+}
+goBtn.addEventListener('click', boot);
+
+/* video → canvas geometry (object-fit: cover), with the frame mirrored */
+const FIT = { s:1, ox:0, oy:0, vw:1280, vh:720, ok:false };
+function refit(){
+  const vw = vid.videoWidth || 1280, vh = vid.videoHeight || 720;
+  const s  = Math.max(W/vw, H/vh);
+  FIT.s = s; FIT.vw = vw; FIT.vh = vh;
+  FIT.ox = (W - vw*s)/2; FIT.oy = (H - vh*s)/2;
+  FIT.ok = true;
+}
+// normalised landmark -> canvas pixels, mirrored
+const nx = x => W - (FIT.ox + x*FIT.vw*FIT.s);
+const ny = y => FIT.oy + y*FIT.vh*FIT.s;
+const nz = z => z*FIT.vw*FIT.s;    // z arrives on roughly the x scale
+
+/* ------------------------------------------------------- 5. procedural track */
+/* If the CDN is unreachable the piece still runs: a procedural face and two
+   procedural hands keep the whole simulation honest with no camera
+   intelligence at all. Boot does not fail. */
+
+/* A real face-shaped cloud, not a random shell: every index this piece
+   actually reads — the oval, the eyes, the brows, the lips, the nose, the
+   irises — is placed where it anatomically belongs, and the remaining 350-odd
+   landmarks fill the interior on a golden-angle spiral. It triangulates, culls
+   and renders exactly like a subject, so the procedural track is a real
+   fallback rather than a placeholder. */
+const SYNTH = { built:false, base:null };
+
+function buildSynthFace(){
+  const N = 478;
+  const P = new Float32Array(N*3);     // model space: x,y in [-1,1]-ish, z depth
+  const AX = 0.86, AY = 1.06, AZ = 0.50;   // the head is one ellipsoid shell
+  // depth of the shell under (x,y); the oval ring lands on the equator at z=0
+  // so a turned head presents a real silhouette instead of two loose surfaces
+  const shell = (x,y)=>{
+    const q = 1 - (x/AX)*(x/AX) - (y/AY)*(y/AY);
+    return q <= 0 ? 0 : AZ*Math.sqrt(q);
+  };
+  const put = (i,x,y,dz)=>{ P[i*3]=x; P[i*3+1]=y; P[i*3+2]=shell(x,y)+(dz||0); };
+  const loop = (idx, ox, oy, rx, ry, rot, dz)=>{
+    const n = idx.length;
+    for (let k=0;k<n;k++){
+      const a = rot + (k/n)*Math.PI*2;
+      put(idx[k], ox + Math.cos(a)*rx, oy + Math.sin(a)*ry, dz||0);
+    }
+  };
+  // the rim, on the equator: jaw-heavy, because a head is not an ellipse
+  {
+    const n = C_OVAL.length;
+    for (let k=0;k<n;k++){
+      const a = -Math.PI/2 + (k/n)*Math.PI*2;
+      const s = Math.sin(a);
+      const rx = AX * (s > 0 ? (1 - 0.28*s*s) : 1);
+      const ry = s > 0 ? 1.14 : 0.96;
+      P[C_OVAL[k]*3]   = Math.cos(a)*rx;
+      P[C_OVAL[k]*3+1] = s*ry;
+      P[C_OVAL[k]*3+2] = 0.17*s*s;   // jaw and brow ride forward; the ears do not
+    }
+  }
+  loop(C_EYE_R, -0.34, -0.16, 0.20, 0.095, Math.PI, -0.03);
+  loop(C_EYE_L,  0.34, -0.16, 0.20, 0.095, 0,       -0.03);
+  loop(C_IRIS_R,-0.34, -0.16, 0.055,0.055, 0,       -0.01);
+  loop(C_IRIS_L, 0.34, -0.16, 0.055,0.055, 0,       -0.01);
+  loop(C_BROW_R,-0.35, -0.34, 0.24, 0.055, Math.PI,  0.02);
+  loop(C_BROW_L, 0.35, -0.34, 0.24, 0.055, 0,        0.02);
+  loop(C_LIP_O,  0.00,  0.46, 0.28, 0.115, Math.PI,  0.01);
+  loop(C_LIP_I,  0.00,  0.46, 0.19, 0.058, Math.PI, -0.01);
+  // the nose is the one thing that stands off the shell
+  for (let k=0;k<C_NOSE.length;k++){
+    const u = k/(C_NOSE.length-1);
+    put(C_NOSE[k], 0, -0.30 + u*0.50, u*u*0.22);
+  }
+  for (let k=0;k<C_NOSTR.length;k++){
+    const u = (k/(C_NOSTR.length-1))*2-1;
+    put(C_NOSTR[k], u*0.135, 0.235 - Math.abs(u)*0.03, 0.16*(1-Math.abs(u)));
+  }
+  // fill: golden-angle spiral over the shell, skipping anything already placed
+  const taken = new Set();
+  for (const set of [C_OVAL,C_EYE_R,C_EYE_L,C_IRIS_R,C_IRIS_L,C_BROW_R,C_BROW_L,C_LIP_O,C_LIP_I,C_NOSE,C_NOSTR])
+    for (const i of set) taken.add(i);
+  const fillN = N - taken.size;
+  let f = 0;
+  for (let i=0;i<N;i++){
+    if (taken.has(i)) continue;
+    f++;
+    const a = f*2.39996;
+    const r = Math.sqrt(f/fillN)*0.94;
+    put(i, Math.cos(a)*r*AX, Math.sin(a)*r*AY, 0);
+  }
+  SYNTH.base = P;
+  SYNTH.built = true;
+}
+
+function synthFace(t){
+  if (!SYNTH.built) buildSynthFace();
+  const P = SYNTH.base, N = 478;
+  const out = new Array(N);
+  const bx = 0.5 + Math.sin(t*0.00031)*0.045;
+  const by = 0.47 + Math.cos(t*0.00027)*0.035;
+  const rw = 0.135, rh = 0.185;
+  const yaw = Math.sin(t*0.00042)*0.42, pit = Math.sin(t*0.00029)*0.16;
+  const cy_=Math.cos(yaw), sy_=Math.sin(yaw), cp=Math.cos(pit), sp=Math.sin(pit);
+  for (let i=0;i<N;i++){
+    const x=P[i*3], y=P[i*3+1], z=P[i*3+2];
+    const x1 =  x*cy_ + z*sy_;
+    const z1 = -x*sy_ + z*cy_;
+    const y1 =  y*cp - z1*sp;
+    const z2 =  y*sp + z1*cp;
+    out[i] = { x: bx + x1*rw, y: by + y1*rh, z: z2*0.16 };
+  }
+  return out;
+}
+function synthHands(t){
+  // Cycles: hands drift in, wave about, then open into the cradle so the whole
+  // projection path exercises itself with no camera at all.
+  const cycle = (t*0.00013) % 1;
+  const hands = [];
+  const n = cycle < 0.28 ? 1 : 2;
+  const open = cycle > 0.46 ? 1 : clamp((cycle-0.30)/0.16, 0, 1);
+
+  for (let h=0; h<n; h++){
+    const ph = t*0.00048 + h*3.1;
+    const swing = (1-open)*0.085;
+    const bx = (n===1 ? 0.50 : (0.31 + h*0.38)) + Math.sin(ph)*swing;
+    const by = 0.70 + Math.cos(ph*1.33)*swing*0.8 + (h?1:-1)*Math.sin(t*0.0004)*0.02*open;
+    const sp = 0.075;                       // wrist -> middle knuckle
+    const L = new Array(21);
+    L[0] = { x:bx, y:by + sp*1.0, z:0 };    // wrist below the palm
+
+    // knuckle row
+    const mcp = [5,9,13,17];
+    for (let f=0; f<4; f++){
+      const u = (f/3)*2-1;
+      L[mcp[f]] = { x: bx + u*sp*0.56, y: by + Math.abs(u)*sp*0.10, z:0 };
+    }
+    // four fingers, curled when closed, straight and fanned when open
+    const chains = [[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+    const len    = [0.80, 0.88, 0.82, 0.66];
+    for (let f=0; f<4; f++){
+      const u = (f/3)*2-1;
+      const fan = u*0.30*open;
+      const root = L[mcp[f]];
+      for (let j=1;j<4;j++){
+        const seg = j/3;
+        const curl = (1-open)*seg*1.55;                  // fold toward the palm
+        const ang = -Math.PI/2 + fan + curl;
+        const rr = sp*len[f]*seg;
+        L[chains[f][j]] = { x: root.x + Math.cos(ang)*rr, y: root.y + Math.sin(ang)*rr, z:0 };
+      }
+    }
+    // thumb, off to the side
+    const tside = (n===1 || h===0) ? -1 : 1;
+    for (let j=1;j<=4;j++){
+      const seg = j/4;
+      const ang = -Math.PI/2 - tside*(0.95 + (1-open)*0.35 + seg*0.22);
+      const rr = sp*seg*0.78;
+      L[j] = { x: bx + Math.cos(ang)*rr, y: by + sp*0.55 + Math.sin(ang)*rr, z:0 };
+    }
+    hands.push(L);
+  }
+  return hands;
+}
+
+/* ------------------------------------------------------------- 6. inference */
+
+function infer(){
+  const t = S.now;
+
+  if (S.degraded || !faceLm || !handLm){
+    if (t >= nextFace){ nextFace = t + RATE.face; acceptFace(synthFace(t)); }
+    if (t >= nextHand){ nextHand = t + RATE.hand; acceptHands(synthHands(t)); }
+    return;
+  }
+  if (!vid.videoWidth || vid.readyState < 2) return;
+
+  // pick up to two detectors per frame, weighted by overdue-ness; the hand
+  // gets a 1.6x weight so it wins ties outright.
+  let budget = S.fpsA > 48 ? 2 : 1;
+  const dueF = (t - nextFace);
+  const dueH = (t - nextHand) * 1.6;
+  const order = dueH >= dueF ? ['hand','face'] : ['face','hand'];
+
+  for (const kind of order){
+    if (budget <= 0) break;
+    if (kind === 'face' && t >= nextFace){
+      nextFace = t + RATE.face;
+      const ts = Math.max(lastFaceTs + 1, t);
+      lastFaceTs = ts;
+      try{
+        const r = faceLm.detectForVideo(vid, ts);
+        acceptFace(r && r.faceLandmarks && r.faceLandmarks[0] ? r.faceLandmarks[0] : null);
+      }catch(e){}
+      budget--;
+    } else if (kind === 'hand' && t >= nextHand){
+      nextHand = t + RATE.hand;
+      const ts = Math.max(lastHandTs + 1, t);
+      lastHandTs = ts;
+      try{
+        const r = handLm.detectForVideo(vid, ts);
+        acceptHands(r && r.landmarks ? r.landmarks : []);
+      }catch(e){}
+      budget--;
+    }
+  }
+}
+
+function acceptFace(lm){
+  if (!lm || !lm.length) return;
+  S.faceRaw = lm;
+  S.faceAt = S.now;
+  if (!FIT.ok) refit();
+
+  const n = lm.length;
+  let px = S.facePx;
+  if (!px || px.length !== n*3) px = S.facePx = new Float32Array(n*3);
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for (let i=0;i<n;i++){
+    const X = nx(lm[i].x), Y = ny(lm[i].y), Z = nz(lm[i].z||0);
+    px[i*3]=X; px[i*3+1]=Y; px[i*3+2]=Z;
+    if (X<x0)x0=X; if (X>x1)x1=X; if (Y<y0)y0=Y; if (Y>y1)y1=Y;
+  }
+  S.faceBox = { x:x0, y:y0, w:x1-x0, h:y1-y0, cx:(x0+x1)/2, cy:(y0+y1)/2 };
+
+  if (!REC.ready) prepareReconstruction(px, n);
+  if (REC.complete || REC.progress > 0.55) captureModel(px, n);
+}
+
+function acceptHands(list){
+  S.handsAt = S.now;
+  if (!FIT.ok) refit();
+  const samples = [];
+  for (const lm of (list||[])){
+    if (!lm || lm.length < 21) continue;
+    const P = new Float32Array(42);
+    for (let i=0;i<21;i++){ P[i*2] = nx(lm[i].x); P[i*2+1] = ny(lm[i].y); }
+    samples.push(P);
+  }
+  assignHandSlots(samples);
+}
+
+/* ------------------------------------------- 7. the triangulation (once) */
+/* The tessellation is not a shipped table — it is computed from the subject's
+   own landmark cloud the first time the machine gets a clean look, then culled
+   back to the face: nothing outside the oval, nothing across an eye, nothing
+   over the mouth opening. It deforms correctly forever after because every
+   edge is a pair of landmark indices, not a pair of positions. */
+
+function circum(ax,ay,bx,by,cx_,cy_){
+  const d = 2*(ax*(by-cy_) + bx*(cy_-ay) + cx_*(ay-by));
+  if (Math.abs(d) < 1e-12) return null;
+  const a2=ax*ax+ay*ay, b2=bx*bx+by*by, c2=cx_*cx_+cy_*cy_;
+  const ux = (a2*(by-cy_) + b2*(cy_-ay) + c2*(ay-by))/d;
+  const uy = (a2*(cx_-bx) + b2*(ax-cx_) + c2*(bx-ax))/d;
+  const dx = ax-ux, dy = ay-uy;
+  return { x:ux, y:uy, r2:dx*dx+dy*dy };
+}
+
+function delaunay(P, n){
+  // Bowyer–Watson. n is ~478, this runs exactly once.
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for (let i=0;i<n;i++){
+    const x=P[i*2], y=P[i*2+1];
+    if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+  }
+  const dmax = Math.max(x1-x0, y1-y0)*24 + 1;
+  const mx=(x0+x1)/2, my=(y0+y1)/2;
+  const V = new Float64Array((n+3)*2);
+  // a deterministic sub-pixel jitter: coincident landmarks (the iris quads sit
+  // very close together) make the cavity degenerate, and a hundredth of a pixel
+  // is invisible.
+  for (let i=0;i<n;i++){
+    V[i*2]   = P[i*2]   + ((i*0.7548776662)%1 - 0.5)*0.02;
+    V[i*2+1] = P[i*2+1] + ((i*0.5698402909)%1 - 0.5)*0.02;
+  }
+  V[n*2]=mx-dmax;   V[n*2+1]=my-dmax;
+  V[(n+1)*2]=mx+dmax; V[(n+1)*2+1]=my-dmax;
+  V[(n+2)*2]=mx;      V[(n+2)*2+1]=my+dmax;
+
+  let tris = [[n,n+1,n+2]];
+  let circles = [ circum(V[n*2],V[n*2+1],V[(n+1)*2],V[(n+1)*2+1],V[(n+2)*2],V[(n+2)*2+1]) ];
+
+  for (let i=0;i<n;i++){
+    const px=V[i*2], py=V[i*2+1];
+    const bad = [];
+    for (let t=tris.length-1;t>=0;t--){
+      const c = circles[t];
+      // a degenerate triangle has no circumcircle and must not survive, or it
+      // sits in the mesh for ever throwing an edge across the face
+      if (!c){ bad.push(tris[t]); tris.splice(t,1); circles.splice(t,1); continue; }
+      const dx=px-c.x, dy=py-c.y;
+      if (dx*dx+dy*dy < c.r2){ bad.push(tris[t]); tris.splice(t,1); circles.splice(t,1); }
+    }
+    // boundary of the cavity
+    const edges = [];
+    for (const T of bad){
+      edges.push([T[0],T[1]],[T[1],T[2]],[T[2],T[0]]);
+    }
+    const keep = [];
+    for (let a=0;a<edges.length;a++){
+      let shared = false;
+      for (let b=0;b<edges.length;b++){
+        if (a===b) continue;
+        if ((edges[a][0]===edges[b][1] && edges[a][1]===edges[b][0]) ||
+            (edges[a][0]===edges[b][0] && edges[a][1]===edges[b][1])){ shared = true; break; }
+      }
+      if (!shared) keep.push(edges[a]);
+    }
+    for (const e of keep){
+      tris.push([e[0], e[1], i]);
+      circles.push(circum(V[e[0]*2],V[e[0]*2+1],V[e[1]*2],V[e[1]*2+1],px,py));
+    }
+  }
+  return tris.filter(T => T[0]<n && T[1]<n && T[2]<n);
+}
+
+function pip(px,py,poly,P){
+  let inside=false;
+  for (let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=P[poly[i]*3], yi=P[poly[i]*3+1];
+    const xj=P[poly[j]*3], yj=P[poly[j]*3+1];
+    if (((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+let lastPrep = -1e9;
+function prepareReconstruction(P, n){
+  if (!S.faceBox || S.faceBox.w < 40) return;
+  // the triangulation is a few tens of ms; if a look is bad, do not sit there
+  // retrying it every detection and eating the frame
+  if (S.now - lastPrep < 400) return;
+  lastPrep = S.now;
+
+  let edges;
+
+  // The canonical mesh only describes landmarks the landmarker produced. If the
+  // camera was refused but the library still loaded, the points are procedural
+  // and its edge list would connect them at random — derive one instead.
+  if (TESS && !S.degraded){
+    edges = Array.from(TESS);
+  } else {
+    edges = deriveMesh(P, n);
+    if (!edges || edges.length < 200) return;   // a bad look; try again later
+  }
+
+  REC.edges = Int32Array.from(edges);
+  REC.edgeN = edges.length/2;
+
+  // assign every landmark to a patch of the face bbox, once, on first sight
+  REC.cell = new Int16Array(n);
+  const bx=S.faceBox.x, by=S.faceBox.y, bw=Math.max(1,S.faceBox.w), bh=Math.max(1,S.faceBox.h);
+  for (let i=0;i<n;i++){
+    const gx = clamp(Math.floor((P[i*3]-bx)/bw*GRID_X),0,GRID_X-1);
+    const gy = clamp(Math.floor((P[i*3+1]-by)/bh*GRID_Y),0,GRID_Y-1);
+    REC.cell[i] = gy*GRID_X + gx;
+  }
+
+  REC.queue = [];
+  for (let i=0;i<PATCHES;i++) REC.queue.push(i);
+  for (let i=REC.queue.length-1;i>0;i--){ const j=rint(0,i); const t=REC.queue[i]; REC.queue[i]=REC.queue[j]; REC.queue[j]=t; }
+  REC.heads = [];
+  REC.built.fill(0);
+  REC.ready = true;
+  REC.progress = 0;
+  REC.complete = false;
+  REC.meshA = MESH_A_MAP; REC.contA = CONT_A_MAP;
+  S.phase = 'mapping';
+  banner('TOPOLOGY :: ASSEMBLING');
+}
+
+/* No canonical mesh: derive one from the subject's own landmark cloud, then
+   cull it back to the face — nothing outside the rim, nothing across an eye,
+   nothing over the mouth opening. */
+function deriveMesh(P, n){
+  const flat = new Float32Array(n*2);
+  for (let i=0;i<n;i++){ flat[i*2]=P[i*3]; flat[i*2+1]=P[i*3+1]; }
+
+  let tris;
+  try{ tris = delaunay(flat, n); }
+  catch(e){ return null; }
+  if (!tris.length) return null;
+
+  const diag = Math.hypot(S.faceBox.w, S.faceBox.h);
+  const maxEdge = diag*0.115;
+
+  const seen = new Set();
+  const edges = [];
+  for (const T of tris){
+    const [a,b,c] = T;
+    const ax=P[a*3],ay=P[a*3+1], bx=P[b*3],by=P[b*3+1], cx_=P[c*3],cy_=P[c*3+1];
+    const e0=Math.hypot(ax-bx,ay-by), e1=Math.hypot(bx-cx_,by-cy_), e2=Math.hypot(cx_-ax,cy_-ay);
+    if (Math.max(e0,e1,e2) > maxEdge) continue;                 // alpha-shape cull
+    const gx=(ax+bx+cx_)/3, gy=(ay+by+cy_)/3;
+    if (!pip(gx,gy,C_OVAL,P)) continue;                          // nothing off the face
+    if (pip(gx,gy,C_EYE_R,P) || pip(gx,gy,C_EYE_L,P)) continue;  // eyes stay open
+    if (pip(gx,gy,C_LIP_I,P)) continue;                          // so does the mouth
+    for (const [p,q] of [[a,b],[b,c],[c,a]]){
+      const k = p<q ? p*1000+q : q*1000+p;
+      if (seen.has(k)) continue;
+      seen.add(k); edges.push(p,q);
+    }
+  }
+  return edges;
+}
+
+/* --------------------------------------------------------- 8. building tick */
+
+function reconTick(dt){
+  if (!REC.ready) return;
+  const seen = (S.now - S.faceAt) < 240;
+
+  if (seen){
+    REC.decaying = false;
+    while (REC.heads.length < BUILD_HEADS && REC.queue.length) REC.heads.push(REC.queue.pop());
+    for (let i=REC.heads.length-1;i>=0;i--){
+      const p = REC.heads[i];
+      REC.built[p] = Math.min(1, REC.built[p] + dt/BUILD_MS);
+      if (REC.built[p] >= 1) REC.heads.splice(i,1);
+    }
+  } else if (S.now - S.faceAt > LOST_GRACE){
+    // no subject: the reconstruction quietly loses its grip
+    REC.decaying = true;
+    let live = false;
+    for (let i=0;i<PATCHES;i++){
+      if (REC.built[i] > 0){ REC.built[i] = Math.max(0, REC.built[i] - dt/DECAY_MS); live = true; }
+    }
+    if (REC.complete){
+      REC.complete = false;
+      REC.queue = []; REC.heads = [];
+      for (let i=0;i<PATCHES;i++) REC.queue.push(i);
+      for (let i=REC.queue.length-1;i>0;i--){ const j=rint(0,i); const t=REC.queue[i]; REC.queue[i]=REC.queue[j]; REC.queue[j]=t; }
+      S.phase = 'acquiring';
+      banner('TOPOLOGY :: LOST');
+    }
+    if (!live) REC.ready = false;
+  }
+
+  let sum = 0;
+  for (let i=0;i<PATCHES;i++) sum += REC.built[i];
+  REC.progress = sum/PATCHES;
+
+  if (!REC.complete && REC.progress >= 0.999){
+    REC.complete = true;
+    REC.completeAt = S.now;
+    S.phase = 'mapped';
+    banner('TOPOLOGY COMPLETE :: CUP A HAND TO RECEIVE');
+  }
+
+  // the ink drops away once the whole face is mapped — the read is finished,
+  // so the drawing gets out of the subject's way.
+  const tgtM = REC.complete ? MESH_A_DONE : MESH_A_MAP;
+  const tgtC = REC.complete ? CONT_A_DONE : CONT_A_MAP;
+  REC.meshA = sm(REC.meshA, tgtM, REC.complete ? FADE_MS/2.4 : 220, dt);
+  REC.contA = sm(REC.contA, tgtC, REC.complete ? FADE_MS/2.4 : 220, dt);
+
+  REC.sweep += dt*0.00075;
+  if (REC.sweep > 1) REC.sweep -= 1;
+}
+
+function banner(txt){ S.banner = txt; S.bannerAt = S.now; }
+
+/* ------------------------------------------------- 9. the hologram model */
+/* Centred, isotropically scaled, z on the same scale as x. Eased toward the
+   live face so the projection is the subject's structure now, not a photo of
+   it — it turns when they turn and it moves when they speak. */
+
+function captureModel(P, n){
+  let cx=0, cy=0, cz=0;
+  for (let i=0;i<n;i++){ cx+=P[i*3]; cy+=P[i*3+1]; cz+=P[i*3+2]; }
+  cx/=n; cy/=n; cz/=n;
+  let rad = 0;
+  for (let i=0;i<n;i++){ const dx=P[i*3]-cx, dy=P[i*3+1]-cy; const d=Math.hypot(dx,dy); if (d>rad) rad=d; }
+  if (rad < 1) return;
+  const k = 1/rad;
+
+  if (!HOLO.model || HOLO.modelN !== n){
+    HOLO.model = new Float32Array(n*3);
+    HOLO.modelN = n;
+    for (let i=0;i<n;i++){
+      HOLO.model[i*3]   = (P[i*3]-cx)*k;
+      HOLO.model[i*3+1] = (P[i*3+1]-cy)*k;
+      HOLO.model[i*3+2] = (P[i*3+2]-cz)*k;
+    }
+    return;
+  }
+  const M = HOLO.model;
+  const a = 0.22;
+  for (let i=0;i<n;i++){
+    M[i*3]   += ((P[i*3]-cx)*k   - M[i*3])*a;
+    M[i*3+1] += ((P[i*3+1]-cy)*k - M[i*3+1])*a;
+    M[i*3+2] += ((P[i*3+2]-cz)*k - M[i*3+2])*a;
+  }
+}
+
+/* ---------------------------------------------------- 10. the hand pipeline */
+/* Slot-stable nearest-wrist matching before anything else touches them — the
+   landmarker does not promise the same hand returns at the same index, and a
+   swap mid-gesture would drop the projection. Each slot then eases toward the
+   newest sample and carries a third of the sample velocity forward, which both
+   smooths jitter and covers the gap between detections instead of holding
+   still through it. */
+
+function newSlot(P){
+  const S_ = {
+    lm:new Float32Array(42), tgt:new Float32Array(42), vel:new Float32Array(42),
+    born:S.now, at:S.now, live:true,
+    span:60, palm:{x:0,y:0}, ppalm:{x:0,y:0}, speed:0, speedA:0,
+    bone:new Float32Array(BONES.length),
+    trail:[[],[],[],[],[]], echo:[], echoAt:0,
+    open:false, openSince:-1e9, spread:0, ext:0,
+    corona:0, ringPhase:rnd(0,6.28), scan:0,
+    side:'?', pulse:0,
+  };
+  S_.lm.set(P); S_.tgt.set(P);
+  for (let i=0;i<5;i++) S_.trail[i] = [];
+  // seed the palm from the sample so the first frame does not read as a
+  // thousand-pixel lurch out of the origin
+  let px=0, py=0;
+  for (const j of PALM_SET){ px += P[j*2]; py += P[j*2+1]; }
+  px/=PALM_SET.length; py/=PALM_SET.length;
+  S_.palm.x = px; S_.palm.y = py;
+  S_.ppalm.x = px; S_.ppalm.y = py;
+  S_.vxs = 0; S_.vys = 0;
+  return S_;
+}
+
+function assignHandSlots(samples){
+  const slots = S.hands;
+  const used = new Array(samples.length).fill(false);
+
+  // 1) match existing slots to their nearest wrist
+  for (let s=0; s<2; s++){
+    const sl = slots[s];
+    if (!sl) continue;
+    let best=-1, bd=1e9;
+    for (let i=0;i<samples.length;i++){
+      if (used[i]) continue;
+      const d = Math.hypot(samples[i][0]-sl.tgt[0], samples[i][1]-sl.tgt[1]);
+      if (d < bd){ bd = d; best = i; }
+    }
+    if (best >= 0 && bd < Math.max(220, sl.span*3.2)){
+      used[best] = true;
+      sl.tgt.set(samples[best]);
+      sl.at = S.now;
+      sl.live = true;
+    }
+  }
+  // 2) anything left over claims an empty slot
+  for (let i=0;i<samples.length;i++){
+    if (used[i]) continue;
+    let s = slots[0] ? (slots[1] ? -1 : 1) : 0;
+    if (s < 0) continue;
+    slots[s] = newSlot(samples[i]);
+    used[i] = true;
+  }
+}
+
+function easeHands(dt){
+  for (let s=0;s<2;s++){
+    const sl = S.hands[s];
+    if (!sl) continue;
+    if (S.now - sl.at > HAND_HOLD){ S.hands[s] = null; continue; }
+
+    const k = 1 - Math.exp(-dt/HAND_EASE);
+    for (let i=0;i<42;i++){
+      const d = (sl.tgt[i] - sl.lm[i]);
+      sl.vel[i] = sm(sl.vel[i], d/Math.max(1,dt)*1000, 90, dt);
+      sl.lm[i] += d*k + (sl.vel[i]/1000)*dt*HAND_LEAD*k;
+    }
+
+    // palm centre + span (wrist -> middle knuckle) — every ratio in the gesture
+    // read is normalised against this so it behaves the same at the lens and
+    // across the room.
+    let px=0, py=0;
+    for (const j of PALM_SET){ px += sl.lm[j*2]; py += sl.lm[j*2+1]; }
+    px/=PALM_SET.length; py/=PALM_SET.length;
+    sl.ppalm.x = sl.palm.x; sl.ppalm.y = sl.palm.y;
+    sl.palm.x = px; sl.palm.y = py;
+    sl.span = Math.max(24, Math.hypot(sl.lm[9*2]-sl.lm[0], sl.lm[9*2+1]-sl.lm[1]));
+
+    const vx = (sl.palm.x - sl.ppalm.x)/Math.max(1,dt)*1000;
+    const vy = (sl.palm.y - sl.ppalm.y)/Math.max(1,dt)*1000;
+    sl.vxs = vx; sl.vys = vy;
+    sl.speed = Math.hypot(vx,vy);
+    sl.speedA = sm(sl.speedA, sl.speed, 130, dt);
+    sl.side = (sl.palm.x > W*0.5) ? 'R' : 'L';
+
+    // bones knit outward from the wrist, staggered — this is the fast mapping,
+    // and it re-runs every single time a hand re-enters the frame.
+    const age = S.now - sl.born;
+    for (let b=0;b<BONES.length;b++){
+      const start = b*BONE_STAGGER*0.45;
+      sl.bone[b] = clamp((age-start)/BONE_MS, 0, 1);
+    }
+
+    // extension / spread — the gesture read
+    let ext = 0;
+    const wx = sl.lm[0], wy = sl.lm[1];
+    const fing = [[8,6],[12,10],[16,14],[20,18]];
+    for (const [tip,pip_] of fing){
+      const dt_ = Math.hypot(sl.lm[tip*2]-wx, sl.lm[tip*2+1]-wy);
+      const dp  = Math.hypot(sl.lm[pip_*2]-wx, sl.lm[pip_*2+1]-wy);
+      if (dt_ > dp*1.11) ext++;
+    }
+    sl.ext = ext;
+    let sp = 0, cnt = 0;
+    for (let i=0;i<TIPS.length;i++) for (let j=i+1;j<TIPS.length;j++){
+      sp += Math.hypot(sl.lm[TIPS[i]*2]-sl.lm[TIPS[j]*2], sl.lm[TIPS[i]*2+1]-sl.lm[TIPS[j]*2+1]);
+      cnt++;
+    }
+    sl.spread = (sp/cnt)/sl.span;
+    const openNow = ext >= OPEN_MIN && sl.spread > 0.62;
+    if (openNow && !sl.open) sl.openSince = S.now;
+    sl.open = openNow;
+    sl.corona = sm(sl.corona, openNow ? 1 : 0.34, 210, dt);
+    sl.ringPhase += dt*0.0011*(1 + sl.speedA/900);
+    sl.pulse = sm(sl.pulse, clamp(sl.speedA/FAST_V,0,1), 120, dt);
+    // the re-scan: the faster the hand travels, the harder the rig works to
+    // hold it, so the sweep across the hand races the motion
+    sl.scan = (sl.scan + dt*0.0011*(0.30 + sl.pulse*2.6)) % 1;
+
+    // fingertip trails + whole-skeleton motion echoes
+    for (let i=0;i<5;i++){
+      const T = sl.trail[i];
+      T.push(sl.lm[TIPS[i]*2], sl.lm[TIPS[i]*2+1]);
+      while (T.length > TRAIL_MAX*2) T.splice(0,2);
+    }
+    if (sl.speedA > FAST_V*0.42 && S.now - sl.echoAt > ECHO_GAP){
+      sl.echoAt = S.now;
+      sl.echo.push({ p:Float32Array.from(sl.lm), t:S.now });
+      while (sl.echo.length > ECHO_MAX) sl.echo.shift();
+    }
+    while (sl.echo.length && S.now - sl.echo[0].t > 300) sl.echo.shift();
+  }
+}
+
+/* ------------------------------------------------------- 11. the projection */
+
+function holoTick(dt){
+  const A = S.hands[0], B = S.hands[1];
+  const cups = [];
+  if (A && A.open && S.now - A.openSince > 60) cups.push(A);
+  if (B && B.open && S.now - B.openSince > 60) cups.push(B);
+
+  const eligible = REC.complete && HOLO.model && cups.length > 0;
+
+  // where it wants to stand
+  if (cups.length >= 2){
+    HOLO.twoHand = true;
+    const d = Math.hypot(cups[0].palm.x-cups[1].palm.x, cups[0].palm.y-cups[1].palm.y);
+    HOLO.tcx = (cups[0].palm.x + cups[1].palm.x)/2;
+    HOLO.tcy = (cups[0].palm.y + cups[1].palm.y)/2 - Math.max(d*0.52, 120);
+    HOLO.tr  = clamp(d*0.46, 90, Math.min(W,H)*0.34);
+    // steering: raise one palm, drop the other — it turns like a wheel
+    const lft = cups[0].palm.x < cups[1].palm.x ? cups[0] : cups[1];
+    const rgt = cups[0].palm.x < cups[1].palm.x ? cups[1] : cups[0];
+    const tilt = clamp((rgt.palm.y - lft.palm.y)/Math.max(60,d), -1, 1);
+    HOLO.steer += tilt * 1.7 * (dt/1000);
+    HOLO.tilt   = sm(HOLO.tilt, clamp(-((lft.vys||0)+(rgt.vys||0))/2/2600, -0.34, 0.34), 260, dt);
+  } else if (cups.length === 1){
+    const c = cups[0];
+    HOLO.twoHand = false;
+    HOLO.tcx = c.palm.x;
+    // clear of the fingers: an open hand reaches about 1.6 spans past the palm,
+    // and the projection has to stand above that, not inside it
+    HOLO.tcy = c.palm.y - c.span*3.30;
+    HOLO.tr  = clamp(c.span*1.70, 78, Math.min(W,H)*0.30);
+    HOLO.steer += (-(c.vxs||0) * HOLO_STEER) * (dt/1000);
+    HOLO.tilt   = sm(HOLO.tilt, clamp(-(c.vys||0)/2600, -0.34, 0.34), 240, dt);
+  }
+
+  // state machine
+  switch (HOLO.state){
+    case 'off':
+      HOLO.p = 0; HOLO.arm = 0;
+      if (eligible){ HOLO.state = 'arming'; HOLO.cx = HOLO.tcx; HOLO.cy = HOLO.tcy; HOLO.r = HOLO.tr*0.2; }
+      break;
+    case 'arming':
+      if (!eligible){ HOLO.state = 'off'; break; }
+      HOLO.arm = clamp(HOLO.arm + dt/HOLO_ARM_MS, 0, 1);
+      if (HOLO.arm >= 1){
+        HOLO.state = 'in'; HOLO.born = S.now; HOLO.p = 0; HOLO.beam = 1;
+        seedMotes(); seedGlyphs();
+        banner(HOLO.twoHand
+          ? 'PROJECTION :: TWO-POINT CRADLE — SPREAD TO SCALE, TILT TO TURN'
+          : 'PROJECTION :: SINGLE CRADLE — SWEEP TO TURN');
+      }
+      break;
+    case 'in':
+      HOLO.p = clamp(HOLO.p + dt/HOLO_IN_MS, 0, 1);
+      HOLO.beam = Math.max(0, HOLO.beam - dt/560);
+      if (HOLO.p >= 1) HOLO.state = 'on';
+      if (!eligible) HOLO.state = 'out';
+      break;
+    case 'on':
+      HOLO.p = 1;
+      if (!eligible) HOLO.state = 'out';
+      break;
+    case 'out':
+      HOLO.p = Math.max(0, HOLO.p - dt/HOLO_OUT_MS);
+      HOLO.arm = HOLO.p;
+      if (eligible){ HOLO.state = HOLO.p > 0.02 ? 'in' : 'arming'; }
+      else if (HOLO.p <= 0){ HOLO.state = 'off'; HOLO.motes.length = 0; }
+      break;
+  }
+
+  if (HOLO.state !== 'off'){
+    const kk = HOLO.state === 'arming' ? 90 : 130;
+    HOLO.cx = sm(HOLO.cx, HOLO.tcx, kk, dt);
+    HOLO.cy = sm(HOLO.cy, HOLO.tcy, kk, dt);
+    HOLO.r  = sm(HOLO.r,  HOLO.tr,  170, dt);
+
+    /* There is no back of a head. The landmarker only ever saw the front, so a
+       full spin would swing the subject round to show a hollow shell. It turns
+       instead: an autonomous sweep the subject can push further with their
+       hands, which then drifts back to the sweep when they hold still. */
+    HOLO.osc  += HOLO_SPIN*(dt/1000);
+    HOLO.steer = clamp(HOLO.steer, -0.90, 0.90) * Math.exp(-dt/2600);
+    HOLO.yaw   = clamp(Math.sin(HOLO.osc)*0.68 + HOLO.steer, -1.24, 1.24);
+    HOLO.pitch = clamp(Math.sin(HOLO.osc*0.63)*0.10 + HOLO.tilt, -0.42, 0.42);
+    HOLO.roll  = Math.sin(S.now*0.0009)*0.045;
+    HOLO.sweepY += HOLO.sweepDir*dt*0.0011;
+    if (HOLO.sweepY > 1.05){ HOLO.sweepY = 1.05; HOLO.sweepDir = -1; }
+    if (HOLO.sweepY < -1.05){ HOLO.sweepY = -1.05; HOLO.sweepDir = 1; }
+    HOLO.flick = 0.90 + Math.random()*0.10;
+    tickMotes(dt);
+  }
+}
+
+function seedMotes(){
+  HOLO.motes.length = 0;
+  for (let i=0;i<64;i++){
+    HOLO.motes.push({
+      a:rnd(0,6.283), rr:rnd(0.25,1.25), y:rnd(-0.2,1.5),
+      vy:rnd(0.16,0.52), s:rnd(0.6,1.9), sp:rnd(-0.5,0.5), l:rnd(0.3,1)
+    });
+  }
+}
+function tickMotes(dt){
+  const d = dt/1000;
+  for (const m of HOLO.motes){
+    m.y -= m.vy*d;
+    m.a += m.sp*d;
+    if (m.y < -1.35){ m.y = rnd(1.1,1.6); m.rr = rnd(0.25,1.25); }
+  }
+}
+function seedGlyphs(){
+  const HEX='0123456789ABCDEF';
+  HOLO.glyphs = [];
+  for (let i=0;i<9;i++){
+    let s='';
+    for (let j=0;j<rint(6,13);j++) s += HEX[rint(0,15)];
+    // kept in the upper half: in the two-hand cradle the lower flanks are
+    // where the subject's own hands and their readouts are
+    HOLO.glyphs.push({ s, y:rnd(-1.02,-0.06), side:i%2?1:-1, t:rnd(0,10) });
+  }
+}
+
+/* ------------------------------------------------------------ 12. rendering */
+
+let grainTile = null;
+function makeGrain(){
+  const s = 190;
+  const g = document.createElement('canvas');
+  g.width = g.height = s;
+  const gc = g.getContext('2d');
+  const im = gc.createImageData(s,s);
+  for (let i=0;i<im.data.length;i+=4){
+    const v = 118 + (Math.random()*74|0);
+    im.data[i]=v; im.data[i+1]=v; im.data[i+2]=v; im.data[i+3]=255;
+  }
+  gc.putImageData(im,0,0);
+  grainTile = g;
+}
+
+function drawVideo(){
+  ctx.fillStyle = BG;
+  ctx.fillRect(0,0,W,H);
+  if (S.degraded || !vid.videoWidth){
+    // procedural mode gets a plain field so the topology is still the subject
+    const g = ctx.createRadialGradient(W*0.5,H*0.45,10, W*0.5,H*0.5, Math.max(W,H)*0.7);
+    g.addColorStop(0,'#0b1016'); g.addColorStop(1,'#04060a');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+    return;
+  }
+  refit();
+  ctx.save();
+  ctx.translate(W,0); ctx.scale(-1,1);              // mirror — a selfie view
+  if (S.grade && S.fpsA > 42) ctx.filter = 'saturate(.72) contrast(1.06) brightness(.94)';
+  ctx.drawImage(vid, FIT.ox, FIT.oy, FIT.vw*FIT.s, FIT.vh*FIT.s);
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
+function drawGrain(){
+  if (!S.grain || !grainTile) return;
+  ctx.save();
+  ctx.globalAlpha = 0.030;
+  ctx.globalCompositeOperation = 'overlay';
+  const ox = -(Math.random()*190|0), oy = -(Math.random()*190|0);
+  const p = ctx.createPattern(grainTile,'repeat');
+  ctx.fillStyle = p;
+  ctx.translate(ox,oy);
+  ctx.fillRect(0,0,W+190,H+190);
+  ctx.restore();
+}
+
+/* -------- the face map: amber tessellation + crimson feature contours ------ */
+
+const BUCKETS = 7;
+function drawFaceMap(){
+  if (!REC.ready || !S.facePx || !REC.edges) return;
+  if (S.now - S.faceAt > 500) return;
+
+  const P = S.facePx;
+  const ink = S.ink;
+  const mA = REC.meshA * ink;
+  const cA = REC.contA * ink;
+  if (mA < 0.004 && cA < 0.004) return;
+
+  const building = !REC.complete;
+  const sweepY = S.faceBox ? (S.faceBox.y + REC.sweep*S.faceBox.h) : -1;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  /* ---- amber tessellation, bucketed by build level so the whole mesh is
+         seven strokes instead of a thousand ---- */
+  const paths = [];
+  for (let b=0;b<BUCKETS;b++) paths.push([]);
+  const E = REC.edges, N = REC.edgeN;
+  for (let e=0;e<N;e++){
+    const a = E[e*2], c = E[e*2+1];
+    const ba = REC.built[REC.cell[a]], bc = REC.built[REC.cell[c]];
+    const v = Math.min(ba,bc);
+    if (v <= 0.02) continue;
+    const bi = clamp(Math.floor(v*BUCKETS), 0, BUCKETS-1);
+    paths[bi].push(P[a*3],P[a*3+1],P[c*3],P[c*3+1]);
+  }
+  for (let b=0;b<BUCKETS;b++){
+    const arr = paths[b];
+    if (!arr.length) continue;
+    const lvl = (b+1)/BUCKETS;
+    ctx.strokeStyle = rgba(lvl>0.86?AMB_HOT:AMB_DIM, mA*(0.30+0.70*lvl));
+    ctx.lineWidth = building ? 0.85 : 0.7;
+    ctx.beginPath();
+    for (let i=0;i<arr.length;i+=4){
+      ctx.moveTo(arr[i],arr[i+1]); ctx.lineTo(arr[i+2],arr[i+3]);
+    }
+    ctx.stroke();
+  }
+
+  /* ---- the leading edge: patches currently under construction glow ---- */
+  if (building && S.faceBox){
+    const bx=S.faceBox.x, by=S.faceBox.y, bw=S.faceBox.w, bh=S.faceBox.h;
+    const cw = bw/GRID_X, ch = bh/GRID_Y;
+    ctx.lineWidth = 1;
+    for (const p of REC.heads){
+      const gx = p%GRID_X, gy = (p/GRID_X)|0;
+      const t = REC.built[p];
+      const x = bx+gx*cw, y = by+gy*ch;
+      ctx.strokeStyle = rgba(AMB_NODE, mA*0.34*(1-t*0.55));
+      ctx.strokeRect(x+1, y+1, cw-2, ch-2);
+      ctx.fillStyle = rgba(AMB_HOT, mA*0.055*(1-t));
+      ctx.fillRect(x+1, y+1, cw-2, ch-2);
+    }
+  }
+
+  /* ---- crimson feature contours ---- */
+  {
+    const maxG2 = S.faceBox ? Math.pow(Math.max(S.faceBox.w,S.faceBox.h)*0.34, 2) : 1e9;
+    for (const C of CONTOURS){
+      const col = C.tone ? RED_LINE : RED_DEEP;
+      let started = false, px_=0, py_=0;
+      ctx.strokeStyle = rgba(col, cA*(C.tone?0.95:0.78));
+      ctx.lineWidth = C.w;
+      ctx.beginPath();
+      for (const pth of C.paths){
+        started = false;
+        const seq = pth.closed ? pth.idx.concat([pth.idx[0]]) : pth.idx;
+        for (const id of seq){
+          if (id*3+1 >= P.length) continue;
+          if (REC.built[REC.cell[id]] < 0.35){ started = false; continue; }
+          const x = P[id*3], y = P[id*3+1];
+          const gap = started && ((x-px_)*(x-px_)+(y-py_)*(y-py_) > maxG2);
+          if (!started || gap) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+          px_=x; py_=y; started = true;
+        }
+      }
+      ctx.stroke();
+    }
+  }
+
+  /* ---- iris rings, the greediest thing the machine wanted ---- */
+  for (const IR of IRISES){
+    if (IR[0]*3+1 >= P.length) break;
+    let cx=0, cy=0;
+    for (const id of IR){ cx+=P[id*3]; cy+=P[id*3+1]; }
+    cx/=IR.length; cy/=IR.length;
+    let r = 0;
+    for (const id of IR) r = Math.max(r, Math.hypot(P[id*3]-cx, P[id*3+1]-cy));
+    if (REC.built[REC.cell[IR[0]]] < 0.4) continue;
+    ctx.strokeStyle = rgba(RED_HOT, cA*1.0);
+    ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,6.283); ctx.stroke();
+    ctx.strokeStyle = rgba(AMB_NODE, cA*0.7);
+    ctx.beginPath(); ctx.arc(cx,cy,r*0.42,0,6.283); ctx.stroke();
+  }
+
+  /* ---- acquisition bracket + scan line, mapping phase only ---- */
+  if (building && S.faceBox){
+    const b = S.faceBox, pad = b.w*0.10;
+    const x0=b.x-pad, y0=b.y-pad, x1=b.x+b.w+pad, y1=b.y+b.h+pad;
+    const L = Math.min(b.w,b.h)*0.16;
+    ctx.strokeStyle = rgba(AMB_DIM, 0.42*ink);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x0,y0+L); ctx.lineTo(x0,y0); ctx.lineTo(x0+L,y0);
+    ctx.moveTo(x1-L,y0); ctx.lineTo(x1,y0); ctx.lineTo(x1,y0+L);
+    ctx.moveTo(x1,y1-L); ctx.lineTo(x1,y1); ctx.lineTo(x1-L,y1);
+    ctx.moveTo(x0+L,y1); ctx.lineTo(x0,y1); ctx.lineTo(x0,y1-L);
+    ctx.stroke();
+
+    const g = ctx.createLinearGradient(0, sweepY-26, 0, sweepY+26);
+    g.addColorStop(0,   rgba(AMB_HOT,0));
+    g.addColorStop(0.5, rgba(AMB_HOT,0.20*ink));
+    g.addColorStop(1,   rgba(AMB_HOT,0));
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, sweepY-26, x1-x0, 52);
+
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = rgba(AMB_DIM, 0.62*ink);
+    ctx.fillText(`TOPOLOGY ${(REC.progress*100).toFixed(0).padStart(3,' ')}%`, x0, y0-8);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = rgba(RED_LINE, 0.52*ink);
+    ctx.fillText(`${REC.edgeN} EDGE · ${PATCHES} PATCH`, x1, y0-8);
+  }
+
+  ctx.restore();
+}
+
+/* ------------------------------- the hands: fast mapping, pushed further --- */
+
+function drawHands(){
+  const ink = S.ink;
+  for (let s=0;s<2;s++){
+    const sl = S.hands[s];
+    if (!sl) continue;
+    const age = S.now - sl.born;
+    const fresh = clamp(1 - age/900, 0, 1);           // the arrival flare
+    const mA = (0.62 + 0.38*sl.corona) * ink;
+
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    /* ---- motion echoes: where the hand just was ---- */
+    for (const e of sl.echo){
+      const a = clamp(1 - (S.now-e.t)/300, 0, 1);
+      ctx.strokeStyle = rgba(AMB_DIM, 0.10*a*a*ink);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const [p,q] of BONES){
+        ctx.moveTo(e.p[p*2],e.p[p*2+1]); ctx.lineTo(e.p[q*2],e.p[q*2+1]);
+      }
+      ctx.stroke();
+    }
+
+    /* ---- the scan corona: concentric arcs standing off the palm ---- */
+    const R = sl.span;
+    const co = sl.corona;
+    const rings = [
+      { r:R*0.72, seg:3, w:1.15, sp: 1.0, col:AMB_DIM, a:0.34 },
+      { r:R*1.06, seg:4, w:0.95, sp:-0.62, col:RED_LINE, a:0.26 },
+      { r:R*1.44, seg:2, w:1.35, sp: 0.41, col:AMB_HOT, a:0.19 },
+    ];
+    for (let ri=0; ri<rings.length; ri++){
+      const rg = rings[ri];
+      const rr = rg.r * (0.82 + 0.18*co) * (1 + sl.pulse*0.10);
+      const ph = sl.ringPhase*rg.sp + ri*1.7;
+      ctx.strokeStyle = rgba(rg.col, rg.a*mA*(0.45+0.55*co));
+      ctx.lineWidth = rg.w;
+      for (let k=0;k<rg.seg;k++){
+        const a0 = ph + k*(6.283/rg.seg);
+        const sweep = (6.283/rg.seg)*0.62;
+        ctx.beginPath();
+        ctx.arc(sl.palm.x, sl.palm.y, rr, a0, a0+sweep);
+        ctx.stroke();
+      }
+      // tick marks
+      ctx.strokeStyle = rgba(rg.col, rg.a*mA*0.72);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k=0;k<12;k++){
+        const a0 = ph*0.4 + k*(6.283/12);
+        const c1 = Math.cos(a0), s1 = Math.sin(a0);
+        ctx.moveTo(sl.palm.x + c1*rr, sl.palm.y + s1*rr);
+        ctx.lineTo(sl.palm.x + c1*(rr+4+3*co), sl.palm.y + s1*(rr+4+3*co));
+      }
+      ctx.stroke();
+    }
+
+    /* ---- the arrival flare: a ring that snaps in when the hand lands ---- */
+    if (fresh > 0){
+      const t = 1-fresh;
+      ctx.strokeStyle = rgba(AMB_NODE, 0.5*fresh*ink);
+      ctx.lineWidth = 1.6*fresh + 0.4;
+      ctx.beginPath();
+      ctx.arc(sl.palm.x, sl.palm.y, R*(0.3 + t*2.4), 0, 6.283);
+      ctx.stroke();
+    }
+
+    /* ---- the skeleton, knitting outward ---- */
+    for (let b=0;b<BONES.length;b++){
+      const t = sl.bone[b];
+      if (t <= 0) continue;
+      const [p,q] = BONES[b];
+      const ax=sl.lm[p*2], ay=sl.lm[p*2+1], bx=sl.lm[q*2], by=sl.lm[q*2+1];
+      const ex = lerp(ax,bx,t), ey = lerp(ay,by,t);
+      ctx.strokeStyle = rgba(AMB_DIM, mA*0.80);
+      ctx.lineWidth = 1.55;
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(ex,ey); ctx.stroke();
+      if (t < 1){
+        ctx.fillStyle = rgba(AMB_NODE, mA);
+        ctx.beginPath(); ctx.arc(ex,ey,2.1,0,6.283); ctx.fill();
+      }
+    }
+
+    /* ---- palm web: crimson, the part that reads as structure ---- */
+    ctx.strokeStyle = rgba(RED_LINE, mA*0.46);
+    ctx.lineWidth = 1.05;
+    ctx.beginPath();
+    ctx.moveTo(sl.lm[0],sl.lm[1]);
+    for (const j of [5,9,13,17]) ctx.lineTo(sl.lm[j*2], sl.lm[j*2+1]);
+    ctx.closePath(); ctx.stroke();
+
+    /* ---- joints ---- */
+    for (let i=0;i<21;i++){
+      const isTip = TIPS.indexOf(i) >= 0;
+      const r = isTip ? 3.0 : 1.9;
+      ctx.fillStyle = rgba(isTip ? RED_HOT : AMB_HOT, mA*(isTip?0.92:0.55));
+      ctx.beginPath(); ctx.arc(sl.lm[i*2], sl.lm[i*2+1], r, 0, 6.283); ctx.fill();
+      if (isTip){
+        ctx.strokeStyle = rgba(RED_LINE, mA*0.55);
+        ctx.lineWidth = 0.9;
+        ctx.beginPath(); ctx.arc(sl.lm[i*2], sl.lm[i*2+1], r+4.5, 0, 6.283); ctx.stroke();
+      }
+    }
+
+    /* ---- fingertip trails — speed made visible ---- */
+    const spd = clamp(sl.speedA/FAST_V, 0, 1);
+    if (spd > 0.05){
+      for (let i=0;i<5;i++){
+        const T = sl.trail[i];
+        if (T.length < 6) continue;
+        ctx.lineWidth = 1.2;
+        for (let k=2;k<T.length;k+=2){
+          const a = (k/T.length)*(k/T.length)*spd*0.80*ink;
+          ctx.strokeStyle = rgba(i===0?RED_LINE:AMB_HOT, a);
+          ctx.beginPath();
+          ctx.moveTo(T[k-2],T[k-1]); ctx.lineTo(T[k],T[k+1]);
+          ctx.stroke();
+        }
+      }
+    }
+
+    /* ---- oriented reticle around the whole hand ---- */
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    for (let i=0;i<21;i++){
+      const x=sl.lm[i*2], y=sl.lm[i*2+1];
+      if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+    }
+    const pad = R*0.28;
+    x0-=pad; y0-=pad; x1+=pad; y1+=pad;
+    /* ---- the re-scan sweep across the hand ---- */
+    {
+      const sy = y0 + sl.scan*(y1-y0);
+      const h  = Math.max(10, (y1-y0)*0.07);
+      const a  = (0.09 + 0.34*sl.pulse)*mA;
+      const g  = ctx.createLinearGradient(0, sy-h, 0, sy+h);
+      g.addColorStop(0,   rgba(AMB_HOT,0));
+      g.addColorStop(0.5, rgba(AMB_HOT,a));
+      g.addColorStop(1,   rgba(AMB_HOT,0));
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, sy-h, x1-x0, h*2);
+      // the joints the plane is crossing light up
+      ctx.fillStyle = rgba(AMB_NODE, mA*(0.30+0.55*sl.pulse));
+      for (let i=0;i<21;i++){
+        if (Math.abs(sl.lm[i*2+1]-sy) < h*0.5) ctx.fillRect(sl.lm[i*2]-1.4, sl.lm[i*2+1]-1.4, 2.8, 2.8);
+      }
+    }
+
+    const L = Math.min(x1-x0,y1-y0)*0.22;
+    ctx.strokeStyle = rgba(AMB_DIM, 0.30*mA);
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(x0,y0+L); ctx.lineTo(x0,y0); ctx.lineTo(x0+L,y0);
+    ctx.moveTo(x1-L,y0); ctx.lineTo(x1,y0); ctx.lineTo(x1,y0+L);
+    ctx.moveTo(x1,y1-L); ctx.lineTo(x1,y1); ctx.lineTo(x1-L,y1);
+    ctx.moveTo(x0+L,y1); ctx.lineTo(x0,y1); ctx.lineTo(x0,y1-L);
+    ctx.stroke();
+
+    /* ---- readout ---- */
+    ctx.font = '9.5px ui-monospace, monospace';
+    ctx.textAlign = 'left';
+    const built = Math.min(...Array.from(sl.bone));
+    const lbl = `MANUS.${sl.side}`;
+    ctx.fillStyle = rgba(AMB_DIM, 0.66*ink);
+    ctx.fillText(lbl, x0, y0-6);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = rgba(built<1?AMB_HOT:RED_LINE, 0.55*ink);
+    ctx.fillText(built<1 ? `MAP ${(built*100).toFixed(0)}%`
+                         : `Δ ${(sl.speedA/240).toFixed(2)} · SPR ${sl.spread.toFixed(2)}`,
+                 x1, y0-6);
+
+    // the cue: once the topology is complete, an open hand is told what it is for
+    if (REC.complete && sl.open && HOLO.state === 'off'){
+      ctx.textAlign = 'center';
+      ctx.fillStyle = rgba(AMB_HOT, (0.45+0.35*Math.sin(S.now*0.008))*ink);
+      ctx.fillText('HOLD', sl.palm.x, y1+16);
+    }
+
+    ctx.restore();
+  }
+}
+
+/* ------------------------------------------- the projection over the palm -- */
+
+function drawHolo(){
+  if (HOLO.state === 'off' || !HOLO.model) return;
+  const ink = S.ink;
+
+  // arming: the gathering ring, before it commits
+  if (HOLO.state === 'arming' && HOLO.arm > 0){
+    const a = HOLO.arm;
+    const cx = HOLO.tcx, cy = HOLO.tcy + HOLO.tr*0.9;
+    ctx.save();
+    ctx.strokeStyle = rgba(AMB_HOT, 0.42*a*ink);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, HOLO.tr*(1.5-a*0.75), -Math.PI/2, -Math.PI/2 + 6.283*a);
+    ctx.stroke();
+    ctx.fillStyle = rgba(AMB_NODE, 0.10*a*ink);
+    ctx.beginPath(); ctx.arc(cx, cy, HOLO.tr*0.30*a, 0, 6.283); ctx.fill();
+    ctx.restore();
+    if (HOLO.p <= 0) return;
+  }
+
+  const p = ease(HOLO.p);
+  if (p <= 0.002) return;
+
+  const cx = HOLO.cx, cy = HOLO.cy;
+  const R  = HOLO.r * (0.22 + 0.78*p);
+  const baseY = cy + R*1.02;
+  const A  = p * ink * HOLO.flick;
+
+  const M = HOLO.model, N = HOLO.modelN;
+  const cyaw=Math.cos(HOLO.yaw), syaw=Math.sin(HOLO.yaw);
+  const cpit=Math.cos(HOLO.pitch), spit=Math.sin(HOLO.pitch);
+  const crol=Math.cos(HOLO.roll), srol=Math.sin(HOLO.roll);
+
+  // project once into a scratch buffer
+  if (!drawHolo.buf || drawHolo.buf.length !== N*3) drawHolo.buf = new Float32Array(N*3);
+  const B = drawHolo.buf;
+  let zmin=1e9, zmax=-1e9;
+  for (let i=0;i<N;i++){
+    let x = M[i*3], y = M[i*3+1], z = M[i*3+2]*1.5;
+    // yaw
+    let x1 =  x*cyaw + z*syaw;
+    let z1 = -x*syaw + z*cyaw;
+    // pitch
+    let y1 =  y*cpit - z1*spit;
+    let z2 =  y*spit + z1*cpit;
+    // roll
+    let x2 = x1*crol - y1*srol;
+    let y2 = x1*srol + y1*crol;
+    const k = 1/(1 - z2*0.30);
+    B[i*3]   = cx + x2*R*k;
+    B[i*3+1] = cy + y2*R*k;
+    B[i*3+2] = z2;
+    if (z2<zmin) zmin=z2; if (z2>zmax) zmax=z2;
+  }
+  const zr = Math.max(0.001, zmax-zmin);
+  const sweepPix = cy + HOLO.sweepY*R;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.globalCompositeOperation = 'lighter';
+
+  /* ---- the volume: light standing off the palm.
+         Cut into shafts rather than filled as one polygon — a single fill has
+         two hard diagonal edges and reads as a grey wedge instead of as
+         light. Each shaft carries its own falloff, so the cone feathers into
+         the room at its sides the way the real thing would. ---- */
+  {
+    const topY = cy - R*1.15;
+    const topHalf = R*1.16, botHalf = R*0.20;
+    const SL = 18;
+    for (let i=0;i<SL;i++){
+      const u0 = (i/SL)*2-1, u1 = ((i+1.06)/SL)*2-1;   // 6% overlap kills seams
+      const um = (u0+u1)/2;
+      const a = Math.pow(1-Math.min(1,Math.abs(um)), 1.7);
+      if (a < 0.02) continue;
+      const g = ctx.createLinearGradient(0, baseY, 0, topY);
+      g.addColorStop(0,    rgba(AMB_DIM, 0.17*A*a));
+      g.addColorStop(0.38, rgba(AMB_DIM, 0.062*A*a));
+      g.addColorStop(1,    rgba(AMB_DIM, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(cx+u0*botHalf, baseY);
+      ctx.lineTo(cx+u1*botHalf, baseY);
+      ctx.lineTo(cx+u1*topHalf, topY);
+      ctx.lineTo(cx+u0*topHalf, topY);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /* ---- the emitter: a small hot core sitting in the palm ---- */
+  {
+    const rr = R*0.34;
+    const g = ctx.createRadialGradient(cx, baseY, 0, cx, baseY, rr);
+    g.addColorStop(0,   `rgba(255,248,225,${0.55*A})`);
+    g.addColorStop(0.22,rgba(AMB_HOT, 0.34*A));
+    g.addColorStop(0.6, rgba(AMB_DIM, 0.11*A));
+    g.addColorStop(1,   rgba(AMB_DIM, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, baseY, rr, 0, 6.283); ctx.fill();
+  }
+
+  /* ---- base rings: the concentric plate the projection stands on ---- */
+  {
+    const squash = 0.26;
+    const ringSet = [
+      { r:0.52, seg:1,  sp: 0.55, col:AMB_HOT,  a:0.50, w:1.5 },
+      { r:0.78, seg:3,  sp:-0.40, col:RED_LINE, a:0.42, w:1.2 },
+      { r:1.02, seg:5,  sp: 0.28, col:AMB_DIM,  a:0.30, w:1.0 },
+      { r:1.26, seg:2,  sp:-0.19, col:AMB_DIM,  a:0.20, w:1.5 },
+    ];
+    for (let i=0;i<ringSet.length;i++){
+      const rg = ringSet[i];
+      const rr = R*rg.r*(0.55+0.45*p);
+      const ph = S.now*0.001*rg.sp + i;
+      ctx.save();
+      ctx.translate(cx, baseY); ctx.scale(1, squash);
+      ctx.strokeStyle = rgba(rg.col, rg.a*A);
+      ctx.lineWidth = rg.w;
+      if (rg.seg === 1){
+        ctx.beginPath(); ctx.arc(0,0,rr,0,6.283); ctx.stroke();
+      } else {
+        for (let k=0;k<rg.seg;k++){
+          const a0 = ph + k*(6.283/rg.seg);
+          ctx.beginPath(); ctx.arc(0,0,rr,a0,a0+(6.283/rg.seg)*0.58); ctx.stroke();
+        }
+      }
+      ctx.strokeStyle = rgba(rg.col, rg.a*A*0.6);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k=0;k<24;k++){
+        const a0 = ph*0.5 + k*(6.283/24);
+        const c1=Math.cos(a0), s1=Math.sin(a0);
+        ctx.moveTo(c1*rr, s1*rr); ctx.lineTo(c1*(rr+6), s1*(rr+6));
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /* ---- the mesh, depth-bucketed: amber ---- */
+  {
+    const E = REC.edges, EN = REC.edgeN;
+    if (E){
+      const paths = [];
+      for (let b=0;b<BUCKETS;b++) paths.push([]);
+      // Turned side-on, a triangulation derived in the plane throws slivers
+      // right across the frame. Anything stretched beyond a fifth of the head
+      // is not structure, it is the projection seen edge-on.
+      const maxE2 = (R*0.20)*(R*0.20);
+      for (let e=0;e<EN;e++){
+        const a = E[e*2], c = E[e*2+1];
+        if (a >= N || c >= N) continue;
+        const ex = B[a*3]-B[c*3], ey = B[a*3+1]-B[c*3+1];
+        if (ex*ex + ey*ey > maxE2) continue;
+        const zc = ((B[a*3+2]+B[c*3+2])/2 - zmin)/zr;   // 0 far … 1 near
+        const bi = clamp(Math.floor(zc*BUCKETS), 0, BUCKETS-1);
+        paths[bi].push(B[a*3],B[a*3+1],B[c*3],B[c*3+1]);
+      }
+      for (let b=0;b<BUCKETS;b++){
+        const arr = paths[b];
+        if (!arr.length) continue;
+        const d = (b+0.5)/BUCKETS;
+        ctx.strokeStyle = rgba(d>0.72?AMB_HOT:AMB_DIM, A*(0.075 + 0.38*d*d));
+        ctx.lineWidth = 0.55 + d*0.6;
+        ctx.beginPath();
+        for (let i=0;i<arr.length;i+=4){ ctx.moveTo(arr[i],arr[i+1]); ctx.lineTo(arr[i+2],arr[i+3]); }
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* ---- the contours, crimson: what makes it read as a face ---- */
+  {
+    const maxC2 = (R*0.30)*(R*0.30);
+    for (const C of CONTOURS){
+      let px_=0, py_=0, started=false;
+      let depth=0, cnt=0;
+      for (const pth of C.paths)
+        for (const id of pth.idx){ if (id<N){ depth += (B[id*3+2]-zmin)/zr; cnt++; } }
+      depth = cnt? depth/cnt : 0.5;
+      ctx.strokeStyle = rgba(C.tone?RED_LINE:RED_DEEP, A*(0.22+0.62*depth));
+      ctx.lineWidth = C.w*(0.72+0.5*depth);
+      ctx.beginPath();
+      for (const pth of C.paths){
+        started = false;
+        const seq = pth.closed ? pth.idx.concat([pth.idx[0]]) : pth.idx;
+        for (const id of seq){
+          if (id >= N) continue;
+          const x=B[id*3], y=B[id*3+1];
+          const gap = started && ((x-px_)*(x-px_) + (y-py_)*(y-py_) > maxC2);
+          if (!started || gap) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+          px_=x; py_=y; started=true;
+        }
+      }
+      ctx.stroke();
+    }
+  }
+
+  /* ---- irises: two bright points, the thing it never got ---- */
+  for (const IR of IRISES){
+    if (IR[0] >= N) break;
+    let ix=0, iy=0, iz=0;
+    for (const id of IR){ ix+=B[id*3]; iy+=B[id*3+1]; iz+=B[id*3+2]; }
+    ix/=IR.length; iy/=IR.length; iz=(iz/IR.length - zmin)/zr;
+    let rr=0;
+    for (const id of IR) rr = Math.max(rr, Math.hypot(B[id*3]-ix, B[id*3+1]-iy));
+    ctx.strokeStyle = rgba(RED_HOT, A*(0.35+0.6*iz));
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(ix,iy,Math.max(1.5,rr),0,6.283); ctx.stroke();
+    ctx.fillStyle = rgba(AMB_NODE, A*(0.30+0.6*iz));
+    ctx.beginPath(); ctx.arc(ix,iy,Math.max(1,rr*0.34),0,6.283); ctx.fill();
+  }
+
+  /* ---- the sweep plane, and the vertices it is passing through.
+         Clipped to the volume of the head: the plane is reading the model, not
+         the room, and an unclipped band floating above the crown reads as a
+         stray rectangle. ---- */
+  {
+    const band = R*0.10;
+    const taper = 1 - Math.pow(Math.abs(HOLO.sweepY)/1.06, 2);   // dies at the crown and the chin
+    const rr = R*1.02;
+    ctx.save();
+    ctx.translate(cx, sweepPix);
+    ctx.scale(1, band/rr);
+    const g = ctx.createRadialGradient(0,0,0, 0,0, rr);
+    g.addColorStop(0,    rgba(AMB_HOT, 0.26*A*taper));
+    g.addColorStop(0.52, rgba(AMB_HOT, 0.13*A*taper));
+    g.addColorStop(1,    rgba(AMB_HOT, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0,0,rr,0,6.283); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = rgba(AMB_NODE, A*0.85);
+    for (let i=0;i<N;i+=3){
+      if (Math.abs(B[i*3+1]-sweepPix) < band*0.42){
+        ctx.fillRect(B[i*3]-0.9, B[i*3+1]-0.9, 1.8, 1.8);
+      }
+    }
+  }
+
+  /* ---- motes ---- */
+  for (const m of HOLO.motes){
+    const rr = R*m.rr;
+    const x = cx + Math.cos(m.a)*rr*0.9;
+    const y = baseY + m.y*R*1.1;
+    const a = A*0.42*m.l*clamp(1-Math.abs(m.y)/1.4,0,1);
+    if (a <= 0.004) continue;
+    ctx.fillStyle = rgba(AMB_HOT, a);
+    ctx.fillRect(x, y, m.s, m.s);
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  /* ---- glyph columns: the descriptor talking to itself ---- */
+  ctx.font = '9px ui-monospace, monospace';
+  for (let i=0;i<HOLO.glyphs.length;i++){
+    const g = HOLO.glyphs[i];
+    const y = cy + g.y*R*0.95;
+    const x = cx + g.side*R*(1.30 + 0.06*Math.sin(S.now*0.001+g.t));
+    ctx.textAlign = g.side > 0 ? 'left' : 'right';
+    ctx.fillStyle = rgba(AMB_DIM, A*0.28);
+    ctx.fillText(g.s, x, y);
+    ctx.strokeStyle = rgba(AMB_DIM, A*0.14);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx + g.side*R*0.92, y-3);
+    ctx.lineTo(x - g.side*4, y-3);
+    ctx.stroke();
+  }
+
+  /* ---- the label ---- */
+  ctx.textAlign = 'center';
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.fillStyle = rgba(AMB_HOT, A*0.72);
+  ctx.fillText('SUBJECT TOPOLOGY · PROJECTION', cx, cy - R*1.22);
+  // no second caption here: below the base plate is where the subject's own
+  // hand is, and nothing gets printed over that. The mode is said once, on
+  // the banner, when the projection commits.
+
+  ctx.restore();
+
+  /* ---- the transfer: a bright arc handing the model from the face to the
+         palm, once, at birth ---- */
+  if (HOLO.beam > 0 && S.faceBox){
+    const t = 1-HOLO.beam;
+    const fx = S.faceBox.cx, fy = S.faceBox.cy;
+    const mx = (fx+cx)/2, my = Math.min(fy,cy) - Math.hypot(fx-cx, fy-cy)*0.28;
+    const bx = (1-t)*(1-t)*fx + 2*(1-t)*t*mx + t*t*cx;
+    const by = (1-t)*(1-t)*fy + 2*(1-t)*t*my + t*t*baseY;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = rgba(AMB_HOT, 0.26*HOLO.beam*ink);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(fx,fy); ctx.quadraticCurveTo(mx,my,cx,baseY); ctx.stroke();
+    ctx.fillStyle = rgba(AMB_NODE, 0.9*HOLO.beam*ink);
+    ctx.beginPath(); ctx.arc(bx,by,3.2,0,6.283); ctx.fill();
+    ctx.strokeStyle = rgba(AMB_NODE, 0.4*HOLO.beam*ink);
+    ctx.beginPath(); ctx.arc(bx,by,10*(1-HOLO.beam)+4,0,6.283); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ------------------------------------------------------------------- HUD --- */
+
+function two(n){ return String(n).padStart(2,'0'); }
+function drawHUD(){
+  if (!S.hud) return;
+  const ink = Math.max(S.ink, 0.35);
+  const t = (S.now - S.t0)/1000;
+  const hh = two(Math.floor(t/3600)), mm = two(Math.floor(t/60)%60), ss = two(Math.floor(t)%60);
+
+  ctx.save();
+  ctx.font = '11px ui-monospace, monospace';
+  ctx.textAlign = 'left';
+
+  // the recording light — the one thing on a surveillance frame that belongs
+  const blink = (Math.floor(S.now/620)%2) === 0;
+  ctx.fillStyle = rgba(RED_LINE, blink ? 0.92*ink : 0.28*ink);
+  ctx.beginPath(); ctx.arc(28, 30, 4.2, 0, 6.283); ctx.fill();
+  ctx.fillStyle = `rgba(200,214,220,${0.62*ink})`;
+  ctx.fillText(`REC  ${hh}:${mm}:${ss}`, 42, 34);
+
+  // the one status line
+  let st, col;
+  if (HOLO.state === 'in' || HOLO.state === 'on'){ st = 'PROJECTION ACTIVE'; col = AMB_HOT; }
+  else if (REC.complete){ st = 'TOPOLOGY COMPLETE'; col = RED_LINE; }
+  else if (REC.ready){ st = `RECONSTRUCTING ${(REC.progress*100).toFixed(0)}%`; col = AMB_DIM; }
+  else { st = 'NO SUBJECT RESOLVED'; col = AMB_DIM; }
+  ctx.textAlign = 'right';
+  ctx.fillStyle = rgba(col, 0.66*ink);
+  ctx.fillText(st, W-28, 34);
+  ctx.fillStyle = `rgba(120,138,146,${0.42*ink})`;
+  ctx.fillText(`${S.fpsA.toFixed(0)} FPS${S.degraded?'  ·  PROCEDURAL TRACK':''}`, W-28, 50);
+
+  // the banner — brief, then out of the way
+  const ba = clamp(1 - (S.now - S.bannerAt)/2600, 0, 1);
+  if (ba > 0 && S.banner){
+    ctx.textAlign = 'center';
+    ctx.font = '12px ui-monospace, monospace';
+    ctx.fillStyle = rgba(AMB_HOT, 0.7*ease(ba)*ink);
+    ctx.fillText(S.banner, W/2, H-46);
+  }
+
+  // the progress rule, mapping phase only
+  if (REC.ready && !REC.complete){
+    const w = Math.min(360, W*0.42);
+    const x = (W-w)/2, y = H-30;
+    ctx.fillStyle = `rgba(255,255,255,${0.06*ink})`;
+    ctx.fillRect(x,y,w,2);
+    ctx.fillStyle = rgba(AMB_HOT, 0.7*ink);
+    ctx.fillRect(x,y,w*REC.progress,2);
+  }
+  ctx.restore();
+}
+
+/* -------------------------------------------------------------- 13. frame -- */
+
+let last = performance.now();
+function frame(ts){
+  requestAnimationFrame(frame);
+  const dt = Math.min(64, ts - last);
+  last = ts;
+  S.now = ts;
+  S.dt = dt;
+  S.fps = 1000/Math.max(1,dt);
+  S.fpsA = S.fpsA*0.92 + S.fps*0.08;
+
+  if (!S.started || S.halted) return;
+
+  infer();
+  easeHands(dt);
+  reconTick(dt);
+  holoTick(dt);
+
+  drawVideo();
+  drawGrain();
+  drawFaceMap();
+  drawHands();
+  drawHolo();
+  drawHUD();
+}
+
+/* --------------------------------------------------------------- 14. keys -- */
+
+window.addEventListener('keydown', e=>{
+  const k = e.key.toLowerCase();
+  if (k === 'h'){ S.hud = !S.hud; }
+  else if (k === 'b'){ S.ink = S.ink === 1 ? 0.45 : (S.ink === 0.45 ? 0 : 1); banner(`OVERLAY INK ${(S.ink*100)|0}%`); }
+  else if (k === 'n'){ S.grain = !S.grain; }
+  else if (k === 'r'){
+    REC.ready = false; REC.complete = false; REC.built.fill(0);
+    REC.queue = []; REC.heads = [];
+    REC.meshA = MESH_A_MAP; REC.contA = CONT_A_MAP;
+    S.phase = 'acquiring';
+    HOLO.state = 'off'; HOLO.p = 0; HOLO.arm = 0;
+    banner('RECONSTRUCTION RESET');
+  }
+  else if (k === 'g'){
+    // force the projection without a hand, for demonstration
+    if (HOLO.model){
+      HOLO.twoHand = false;
+      HOLO.tcx = W*0.5; HOLO.tcy = H*0.5; HOLO.tr = Math.min(W,H)*0.24;
+      if (HOLO.state === 'off'){ HOLO.cx=HOLO.tcx; HOLO.cy=HOLO.tcy; HOLO.r=HOLO.tr*0.2; }
+      HOLO.state = 'in'; HOLO.born = S.now; HOLO.beam = 1;
+      seedMotes(); seedGlyphs();
+      banner('PROJECTION :: FORCED');
+      setTimeout(()=>{ if (HOLO.state==='on'||HOLO.state==='in') HOLO.state='out'; }, 6000);
+    } else banner('NO MODEL — MAP A FACE FIRST');
+  }
+  else if (k === 'f'){
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+  else if (k === 'escape'){
+    S.halted = true;
+    const st = vid.srcObject;
+    if (st) st.getTracks().forEach(t=>t.stop());
+    ctx.fillStyle = BG; ctx.fillRect(0,0,W,H);
+    ctx.textAlign = 'center';
+    ctx.font = '13px ui-monospace, monospace';
+    ctx.fillStyle = rgba(AMB_DIM, 0.8);
+    ctx.fillText('SENSOR HALTED', W/2, H/2 - 22);
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = rgba(RED_LINE, 0.6);
+    ctx.fillText(`TOPOLOGY ${(REC.progress*100).toFixed(0)}%  ·  ${REC.edgeN} EDGES  ·  RUN ${((S.now-S.t0)/1000).toFixed(0)}s`, W/2, H/2 + 2);
+    ctx.fillStyle = 'rgba(140,156,164,.45)';
+    ctx.fillText('IDENTITY UNKNOWN — PROTOTYPE VER.1', W/2, H/2 + 26);
+  }
+});
+
+/* a handle on the live state, for tuning from the console.
+   `feed` pushes landmarks in by hand, which is how this was tested without
+   standing in front of the lens. */
+window.__IU = {
+  S, REC, HOLO, banner,
+  get topology(){ return TESS ? 'canonical' : 'derived'; },
+  get contours(){ return CONTOURS.map(c=>c.paths.map(p=>p.idx.length+(p.closed?'c':'o'))); },
+  feed:acceptFace, feedHands:acceptHands, synthFace, synthHands,
+};
+
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

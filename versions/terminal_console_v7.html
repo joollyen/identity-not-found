@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDENTITY UNKNOWN // TERMINAL CONSOLE</title>
+<style>
+/* ============================================================================
+   IDENTITY UNKNOWN  //  TERMINAL CONSOLE  //  v7
+
+   The detached half of the rig. prototype_v7.html has one rectangle and it has
+   to give most of it to a face, so its terminals are small, capped, and shoved
+   into whatever corner the HUD is not using. This page is the same terminals
+   with none of that pressure: full size, unlimited count, real scrollback, and
+   an entire screen to be arranged on.
+
+   It holds no simulation of its own. Everything here is a mirror of a running
+   prototype_v7.html on the same browser, carried over a BroadcastChannel. Open
+   it before, during or after the rig starts — it announces itself on load and
+   is handed a full snapshot of every window already open, scrollback included.
+   ========================================================================== */
+:root{
+  --phos:#4dff88; --phos-dim:#1c7a3d; --phos-glow:rgba(77,255,136,.30);
+  --cyan:#00e5ff; --crimson:#ff2d3f; --amber:#ffb000;
+  --bg:#040705;
+  --mono:'Ubuntu Mono','Ubuntu Monospace','DejaVu Sans Mono',ui-monospace,
+         SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--phos);font-family:var(--mono);
+  overflow:hidden;user-select:none;-webkit-font-smoothing:antialiased}
+
+/* the same raster the rig sits behind, so the two screens read as one machine */
+#grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.5;
+  background:repeating-linear-gradient(0deg,
+    rgba(255,255,255,.028) 0px, rgba(255,255,255,.028) 1px,
+    rgba(0,0,0,0) 1px, rgba(0,0,0,0) 3px)}
+#vig{position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 45%,transparent 42%,rgba(0,0,0,.62) 100%)}
+
+/* ---------------------------------------------------------------- chrome --- */
+#top{position:fixed;top:0;left:0;right:0;height:30px;z-index:80;
+  display:flex;align-items:center;gap:0;padding:0 8px;
+  background:rgba(2,10,5,.92);border-bottom:1px solid var(--phos-dim);
+  font-size:11px;letter-spacing:.06em;white-space:nowrap;overflow:hidden}
+#top .brand{color:var(--phos);opacity:.9;margin-right:14px;flex:none}
+#top .sep{width:1px;height:16px;background:var(--phos-dim);opacity:.5;margin:0 8px;flex:none}
+button{font:inherit;font-size:10.5px;letter-spacing:.06em;cursor:pointer;
+  background:transparent;color:var(--phos);border:1px solid var(--phos-dim);
+  padding:2px 8px;margin-right:5px;flex:none}
+button:hover{background:var(--phos-dim);color:#02100a}
+button.on{background:var(--phos);color:#02100a;border-color:var(--phos)}
+#stat{margin-left:auto;display:flex;gap:12px;align-items:center;flex:none;opacity:.85}
+#stat b{font-weight:normal;color:#d8ffe6}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+  background:var(--crimson);box-shadow:0 0 7px var(--crimson);margin-right:5px;
+  vertical-align:middle}
+.dot.up{background:var(--phos);box-shadow:0 0 7px var(--phos)}
+body.rage #top{border-bottom-color:var(--amber)}
+body.rage .dot.up{background:var(--amber);box-shadow:0 0 9px var(--amber)}
+
+/* ------------------------------------------------------------ the wall ----- */
+#wall{position:fixed;inset:30px 0 22px 0;z-index:10;overflow:hidden}
+#idle{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:9px;
+  color:var(--phos-dim);filter:brightness(1.7);font-size:12.5px;letter-spacing:.14em;
+  text-align:center;padding:0 30px;line-height:1.9}
+#idle .big{font-size:15px;color:var(--phos);letter-spacing:.2em}
+#idle.gone{display:none}
+#idle .blink{animation:bl 1.05s steps(2) infinite}
+@keyframes bl{0%,100%{opacity:1}50%{opacity:.15}}
+
+#bot{position:fixed;bottom:0;left:0;right:0;height:22px;z-index:80;
+  display:flex;align-items:center;padding:0 9px;gap:14px;
+  background:rgba(2,10,5,.92);border-top:1px solid var(--phos-dim);
+  font-size:10px;letter-spacing:.05em;color:var(--phos-dim);
+  filter:brightness(1.8);white-space:nowrap;overflow:hidden}
+
+/* ------------------------------------------------------------- windows ----- */
+.term{position:absolute;left:0;top:0;display:flex;flex-direction:column;
+  background:rgba(1,6,3,.90);
+  border:1px solid var(--tc-dim);
+  box-shadow:0 0 0 1px rgba(0,0,0,.7), 0 0 18px var(--tc-glow);
+  --fs:1;font-size:calc(12px * var(--fs));line-height:1.36;color:var(--tc);
+  overflow:hidden;will-change:transform;contain:layout paint;
+  animation:tspawn .13s cubic-bezier(.2,.9,.3,1)}
+@keyframes tspawn{
+  0%{opacity:0;transform:scaleY(.05);filter:brightness(2.6)}
+  100%{opacity:1;filter:none}}
+.term.compute{border-color:var(--phos);
+  box-shadow:0 0 0 1px rgba(0,0,0,.8), 0 0 24px rgba(77,255,136,.35)}
+.term.dead{animation:tdie .22s steps(3) forwards;pointer-events:none}
+@keyframes tdie{
+  0%{opacity:1}45%{opacity:1;filter:brightness(3.2) invert(1)}
+  100%{opacity:0;transform:scaleY(.03)}}
+
+.term .bar{display:flex;align-items:center;gap:7px;padding:2px 7px;flex:none;
+  background:var(--tc-dim);color:#02100a;font-size:calc(11px * var(--fs));
+  cursor:grab;user-select:none}
+.term.compute .bar{background:var(--phos)}
+.term .bar:active{cursor:grabbing}
+.term .bar .ttl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.term .bar .pid{opacity:.6;font-size:calc(9.5px * var(--fs))}
+.term .bar .x{cursor:pointer;padding:0 3px;letter-spacing:.1em}
+.term .bar .x:hover{background:rgba(0,0,0,.35);color:#fff}
+
+.term .urlbar{display:flex;align-items:center;gap:6px;padding:2px 7px;flex:none;
+  background:rgba(255,255,255,.05);border-bottom:1px solid var(--tc-dim);
+  font-size:calc(11px * var(--fs));color:var(--tc);white-space:nowrap;overflow:hidden}
+.term .urlbar .lk{color:var(--amber);letter-spacing:-.04em}
+.term .urlbar .url{flex:1;overflow:hidden;text-overflow:ellipsis;
+  filter:brightness(1.7);opacity:.9}
+.term .urlbar .spin{color:var(--tc-dim);filter:brightness(2)}
+
+/* Real scrollback. This is the whole point of the detached console — the rig
+   throws nine lines away as fast as it writes them, and here nothing is lost. */
+.term .body{padding:4px 7px 5px;flex:1 1 auto;overflow-y:auto;overflow-x:hidden;
+  display:flex;flex-direction:column;justify-content:flex-start;min-height:0;
+  scrollbar-width:thin;scrollbar-color:var(--tc-dim) transparent}
+.term .body::-webkit-scrollbar{width:7px}
+.term .body::-webkit-scrollbar-track{background:rgba(255,255,255,.04)}
+.term .body::-webkit-scrollbar-thumb{background:var(--tc-dim)}
+.term .ln{white-space:pre-wrap;word-break:break-word;flex:none}
+.term .ln.dimx{color:var(--tc-dim);filter:brightness(1.8)}
+.term .ln.warn{color:var(--amber)}
+.term .ln.ice{color:#7ec8ff}
+.term .ln.fail{color:var(--crimson)}
+.term .ln.panic{color:#ff8d97;background:rgba(255,45,63,.10)}
+.term .ln.num{color:#8dffb4;letter-spacing:-.01em}
+.term .ln.eq{color:#d8ffe6}
+.term .ln.hit{color:#cfe9ff}
+.term .ln.url{color:#8fb7ff;text-decoration:underline;
+  text-decoration-color:rgba(143,183,255,.35)}
+.term .ln.deny{color:var(--crimson);background:rgba(255,45,63,.07)}
+.term .ln.stamp{color:#eafff1;background:rgba(255,255,255,.06);
+  border-left:2px solid var(--crimson);padding-left:5px}
+/* the rule the rig draws when a window is cleared and starts over */
+.term .ln.mark{color:var(--tc-dim);filter:brightness(1.5);opacity:.8;
+  border-top:1px dashed var(--tc-dim);margin-top:3px;padding-top:3px}
+
+.term .prog{height:2px;background:rgba(255,255,255,.08);flex:none;overflow:hidden}
+.term .prog i{display:block;height:100%;background:var(--tc);width:0%;
+  transition:width .09s linear;box-shadow:0 0 8px var(--tc-glow)}
+
+.term.repelled{border-color:var(--crimson)}
+.term.repelled .bar{background:var(--crimson);color:#1a0004}
+.term.repelled .prog i{background:var(--crimson)}
+.term.panic{border-color:var(--crimson);
+  box-shadow:0 0 0 1px rgba(0,0,0,.8),0 0 26px rgba(255,45,63,.5)}
+.term.panic .bar{background:var(--crimson);color:#1a0004}
+.term.glitch{animation:tglitch .22s steps(2) infinite}
+@keyframes tglitch{
+  0%  {transform:translate(0,0)}
+  22% {filter:brightness(1.8) hue-rotate(-22deg)}
+  46% {filter:brightness(.55) saturate(2.4)}
+  71% {filter:brightness(2.2) invert(.06)}
+  100%{transform:translate(0,0)}}
+/* glitch must not fight the transform that positions the window, so it only
+   touches filters here — the rig can afford the jitter, a wall of them cannot */
+
+.term .rz{position:absolute;z-index:3;opacity:0;transition:opacity .12s}
+.term:hover .rz{opacity:1}
+.term .rz.n {top:-3px;left:9px;right:9px;height:7px;cursor:ns-resize}
+.term .rz.s {bottom:-3px;left:9px;right:9px;height:7px;cursor:ns-resize}
+.term .rz.w {left:-3px;top:9px;bottom:9px;width:7px;cursor:ew-resize}
+.term .rz.e {right:-3px;top:9px;bottom:9px;width:7px;cursor:ew-resize}
+.term .rz.nw{left:-3px;top:-3px;width:13px;height:13px;cursor:nwse-resize}
+.term .rz.ne{right:-3px;top:-3px;width:13px;height:13px;cursor:nesw-resize}
+.term .rz.sw{left:-3px;bottom:-3px;width:13px;height:13px;cursor:nesw-resize}
+.term .rz.se{right:-3px;bottom:-3px;width:14px;height:14px;cursor:nwse-resize;
+  background:linear-gradient(135deg,transparent 42%,var(--tc) 42%,var(--tc) 54%,
+    transparent 54%,transparent 68%,var(--tc) 68%,var(--tc) 80%,transparent 80%)}
+.term:hover .rz.se{opacity:.6}
+.term.sizing{outline:1px solid var(--tc);outline-offset:1px}
+.term .dim{position:absolute;right:4px;bottom:4px;z-index:4;pointer-events:none;
+  font-size:9.5px;color:var(--tc);background:rgba(0,0,0,.66);padding:0 4px;
+  opacity:0;transition:opacity .1s}
+.term.sizing .dim{opacity:.9}
+/* a window pinned by the operator is exempt from TILE / CASCADE / STACK */
+.term.pinned{border-style:dashed}
+.term.pinned .bar::after{content:'PIN';font-size:9px;opacity:.7;letter-spacing:.1em}
+</style>
+</head>
+<body>
+<div id="grain"></div>
+<div id="vig"></div>
+
+<div id="top">
+  <span class="brand">IDENTITY UNKNOWN // TERMINAL CONSOLE</span>
+  <button id="bTile">TILE</button>
+  <button id="bCasc">CASCADE</button>
+  <button id="bStack">STACK</button>
+  <span class="sep"></span>
+  <button id="bFollow" class="on">FOLLOW</button>
+  <button id="bAuto" class="on">AUTOSCROLL</button>
+  <button id="bKeep">KEEP DEAD</button>
+  <span class="sep"></span>
+  <button id="bClear">CLEAR DEAD</button>
+  <button id="bFull">FULLSCREEN</button>
+  <div id="stat">
+    <span><span class="dot" id="link"></span><span id="linktx">NO RIG</span></span>
+    <span>WIN <b id="nwin">0</b></span>
+    <span>LINES <b id="nlines">0</b></span>
+    <span>RIG <b id="rigfps">--</b>fps</span>
+  </div>
+</div>
+
+<div id="wall">
+  <div id="idle">
+    <div class="big" id="idleTtl">NO RIG ON THIS CHANNEL</div>
+    <div id="idleBody">
+      THIS PAGE IS A MIRROR. IT HOLDS NO SESSION OF ITS OWN.<br>
+      OPEN <b>prototype_v7.html</b> IN ANOTHER TAB OR WINDOW AND START IT.<br>
+      EVERY TERMINAL THE RIG OPENS WILL APPEAR HERE, FULL SIZE.
+    </div>
+    <div class="blink" id="idleFoot">▚ LISTENING ON identity_unknown_v7 …</div>
+  </div>
+</div>
+
+<div id="bot">
+  <span>DRAG BAR TO MOVE</span>
+  <span>DRAG EDGE OR CORNER TO RESIZE</span>
+  <span>WHEEL ON BAR TO SCALE</span>
+  <span>DBL-CLICK BAR TO PIN</span>
+  <span>DBL-CLICK CORNER TO RESET</span>
+  <span id="botmsg" style="margin-left:auto;color:var(--amber)"></span>
+</div>
+
+<script>
+/* ============================================================================
+   CHANNEL
+   The rig speaks, this listens. `hello` on load asks any running rig for a full
+   snapshot; `ping` keeps it broadcasting. If the rig never answers the page
+   just sits on its idle card, which is the correct behaviour for a mirror.
+
+   Two transports, for the same reason the rig has two: BroadcastChannel when
+   the pages share a real origin, and a direct window.opener postMessage when
+   they do not — which is the case for any file:// page, where every document
+   gets its own opaque origin and the channel connects to nothing. Messages
+   carry a sequence number so a duplicate arriving on both paths is dropped
+   rather than written twice.
+   ========================================================================== */
+const CH_NAME='identity_unknown_v7';
+let ch=null;
+try{ ch=new BroadcastChannel(CH_NAME); }
+catch(e){ /* very old browser — the page still renders, it just stays empty */ }
+const rigWin = window.opener || null;   // set when the rig opened us with [C]
+
+const $=s=>document.querySelector(s);
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const wall=$('#wall'), idle=$('#idle');
+
+const PALETTES={
+  phosphor:{c:'#4dff88', d:'#1c7a3d', g:'rgba(77,255,136,.28)'},
+  cyan    :{c:'#00e5ff', d:'#0a5f6b', g:'rgba(0,229,255,.28)'},
+  crimson :{c:'#ff2d3f', d:'#6b1119', g:'rgba(255,45,63,.28)'},
+  amber   :{c:'#ffb000', d:'#6b4a00', g:'rgba(255,176,0,.28)'},
+};
+
+/* ---------------------------------------------------------------- settings - */
+const CFG={
+  follow:true,      // new windows are auto-placed; off = they land and stay put
+  auto:true,        // stick to the bottom of the scrollback
+  keepDead:false,   // leave killed windows on the wall as corpses
+};
+const SCROLLBACK=1400;                  // lines per window before the top is cut
+const MIN_W=180, MIN_H=90;
+const SCALE_MIN=0.6, SCALE_MAX=2.8;
+
+const wallRect=()=>({w:wall.clientWidth, h:wall.clientHeight});
+
+/* ============================================================================
+   MIRRORED WINDOW
+   ========================================================================== */
+let zTop=100;
+const WINS=new Map();                   // rig id -> Win
+let totalLines=0;
+
+class Win{
+  constructor(t){
+    this.id=t.id;
+    this.cat=t.cat||'misc';
+    this.compute=!!t.compute; this.browse=!!t.browse;
+    this.dead=false; this.pinned=false;
+    this.lines=0;
+    this.scale=1;
+    /* the console runs the windows appreciably larger than the rig does — that
+       is what it is for. Compute and browser windows get more again. */
+    this.w=this.compute?520:this.browse?540:400;
+    this.h=this.compute?330:this.browse?320:250;
+    const p=PALETTES[t.pal]||PALETTES.phosphor;
+
+    this.el=document.createElement('div');
+    this.el.className='term'+(this.compute?' compute':'')+(this.browse?' browse':'');
+    for(const c of (t.cls||[])) if(c!=='held'&&c!=='grabbable'&&c!=='sizing') this.el.classList.add(c);
+    this.el.style.setProperty('--tc',p.c);
+    this.el.style.setProperty('--tc-dim',p.d);
+    this.el.style.setProperty('--tc-glow',p.g);
+    this.el.innerHTML=
+      `<div class="bar"><span class="ttl"></span>`+
+      `<span class="pid">#${t.id}</span><span class="x">✕</span></div>`+
+      (this.browse?`<div class="urlbar"><span class="lk">⛨</span>`+
+                   `<span class="url"></span><span class="spin"></span></div>`:'')+
+      `<div class="body"></div><div class="prog"><i></i></div>`+
+      `<span class="dim"></span>`+
+      ['n','s','w','e','nw','ne','sw','se']
+        .map(d=>`<i class="rz ${d}" data-d="${d}"></i>`).join('');
+    this.bar=this.el.querySelector('.bar');
+    this.body=this.el.querySelector('.body');
+    this.prog=this.el.querySelector('.prog i');
+    this.ttl=this.el.querySelector('.ttl');
+    this.dimEl=this.el.querySelector('.dim');
+    this.urlEl=this.browse?this.el.querySelector('.url'):null;
+    this.spinEl=this.browse?this.el.querySelector('.spin'):null;
+
+    this.setTitle(t.title||'');
+    const pos=CFG.follow?nextSlot(this):{x:40,y:40};
+    this.x=pos.x; this.y=pos.y;
+    this.applyBox(); this.applyXform();
+    wall.appendChild(this.el);
+    WINS.set(this.id,this);
+    this.wire();
+    this.raise();
+
+    for(const [text,cls] of (t.lines||[])) this.write(text,cls,true);
+    if(t.url) this.setUrl(t.url,t.spin);
+    if(t.prog) this.setProg(t.prog);
+    refreshChrome();
+  }
+
+  applyBox(){
+    this.el.style.width=Math.round(this.w)+'px';
+    this.el.style.height=Math.round(this.h)+'px';
+    this.el.style.setProperty('--fs',this.scale.toFixed(3));
+    this.dimEl.textContent=`${Math.round(this.w)}×${Math.round(this.h)}`+
+      (Math.abs(this.scale-1)>0.02?`  ${Math.round(this.scale*100)}%`:'');
+  }
+  applyXform(){
+    this.el.style.transform=`translate3d(${Math.round(this.x)}px,${Math.round(this.y)}px,0)`;
+  }
+  moveTo(x,y){
+    const R=wallRect();
+    this.x=clamp(x,-this.w+80,R.w-80);
+    this.y=clamp(y,0,R.h-24);
+    this.applyXform();
+  }
+  setSize(w,h,keepCentre){
+    const R=wallRect();
+    const ow=this.w, oh=this.h;
+    this.w=clamp(w,MIN_W,R.w);
+    this.h=clamp(h,MIN_H,R.h);
+    if(keepCentre){ this.x-=(this.w-ow)/2; this.y-=(this.h-oh)/2; }
+    this.applyBox(); this.moveTo(this.x,this.y);
+  }
+  setScale(s){
+    const ns=clamp(s,SCALE_MIN,SCALE_MAX);
+    if(Math.abs(ns-this.scale)<0.002) return;
+    const f=ns/this.scale;
+    this.scale=ns;
+    this.setSize(this.w*f,this.h*f,true);
+  }
+  raise(){ this.el.style.zIndex=++zTop; }
+
+  /* ------------------------------------------------------------ content --- */
+  setTitle(t){ this.title=t; this.ttl.textContent=t; }
+  setUrl(u,s){
+    if(this.urlEl) this.urlEl.textContent=u||'';
+    if(this.spinEl && s!==undefined) this.spinEl.textContent=s||'';
+  }
+  setProg(v){ this.prog.style.width=(clamp(v,0,1)*100).toFixed(1)+'%'; }
+  write(text,cls,quiet){
+    const stick = CFG.auto && this.atBottom();
+    const d=document.createElement('div');
+    d.className='ln'+(cls?' '+cls:'');
+    d.textContent=text;
+    this.body.appendChild(d);
+    this.lines++; if(!quiet){ totalLines++; }
+    while(this.lines>SCROLLBACK){
+      const f=this.body.firstElementChild; if(!f) break;
+      f.remove(); this.lines--;
+    }
+    if(stick) this.body.scrollTop=this.body.scrollHeight;
+  }
+  atBottom(){
+    return this.body.scrollHeight-this.body.scrollTop-this.body.clientHeight < 42;
+  }
+  /* the rig wipes a buffer on a kernel panic. Here the history is the value, so
+     the wipe is recorded as a rule rather than performed. */
+  wipe(){
+    this.write('── buffer wiped by supervisor ──','mark',true);
+  }
+  glitch(ms){
+    this.el.classList.add('glitch');
+    clearTimeout(this._gt);
+    this._gt=setTimeout(()=>this.el.classList.remove('glitch'), ms||700);
+  }
+  cls(c,on){ this.el.classList.toggle(c,!!on); }
+
+  kill(){
+    if(this.dead) return;
+    this.dead=true;
+    this.el.classList.add('repelled');
+    this.ttl.textContent='✕ '+this.title;
+    if(CFG.keepDead){
+      /* left on the wall as a corpse — still scrollable, no longer fed */
+      this.el.style.opacity='.55';
+      refreshChrome();
+      return;
+    }
+    this.el.classList.add('dead');
+    setTimeout(()=>this.destroy(), 240);
+  }
+  destroy(){
+    WINS.delete(this.id);
+    this.el.remove();
+    refreshChrome();
+  }
+
+  /* -------------------------------------------------------- interaction --- */
+  wire(){
+    /* move */
+    let sx=0,sy=0,ox=0,oy=0,on=false;
+    this.bar.addEventListener('pointerdown',e=>{
+      if(e.target.classList.contains('x')) return;
+      on=true; sx=e.clientX; sy=e.clientY; ox=this.x; oy=this.y;
+      this.raise(); this.bar.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    this.bar.addEventListener('pointermove',e=>{
+      if(!on) return;
+      this.moveTo(ox+e.clientX-sx, oy+e.clientY-sy);
+    });
+    const up=()=>{ on=false; };
+    this.bar.addEventListener('pointerup',up);
+    this.bar.addEventListener('pointercancel',up);
+
+    /* pin — a pinned window is skipped by the layout buttons */
+    this.bar.addEventListener('dblclick',e=>{
+      if(e.target.classList.contains('x')) return;
+      this.pinned=!this.pinned;
+      this.el.classList.toggle('pinned',this.pinned);
+      msg(this.pinned?`WINDOW #${this.id} PINNED`:`WINDOW #${this.id} UNPINNED`);
+    });
+
+    /* close — tells the rig to close it too, so the two stay in step */
+    this.el.querySelector('.x').addEventListener('click',e=>{
+      e.stopPropagation();
+      post({k:'close', id:this.id});
+      this.kill();
+    });
+
+    /* scale */
+    this.el.addEventListener('wheel',e=>{
+      if(!this.bar.contains(e.target) && !e.altKey) return;
+      e.preventDefault();
+      const step=e.shiftKey?0.14:0.07;
+      this.setScale(this.scale*(e.deltaY<0?1+step:1-step));
+      this.raise();
+    },{passive:false});
+
+    /* resize, eight handles */
+    for(const hEl of this.el.querySelectorAll('.rz')){
+      const d=hEl.dataset.d;
+      let rx=0,ry=0,px=0,py=0,pw=0,ph=0,rz=false;
+      hEl.addEventListener('pointerdown',e=>{
+        rz=true; rx=e.clientX; ry=e.clientY;
+        px=this.x; py=this.y; pw=this.w; ph=this.h;
+        this.el.classList.add('sizing'); this.raise();
+        hEl.setPointerCapture(e.pointerId);
+        e.preventDefault(); e.stopPropagation();
+      });
+      hEl.addEventListener('pointermove',e=>{
+        if(!rz) return;
+        const dx=e.clientX-rx, dy=e.clientY-ry;
+        const R=wallRect();
+        let w=pw,h=ph,x=px,y=py;
+        if(d.includes('e')) w=pw+dx;
+        if(d.includes('s')) h=ph+dy;
+        if(d.includes('w')) w=pw-dx;
+        if(d.includes('n')) h=ph-dy;
+        const cw=clamp(w,MIN_W,R.w), chh=clamp(h,MIN_H,R.h);
+        if(d.includes('w')) x=px+(pw-cw);
+        if(d.includes('n')) y=py+(ph-chh);
+        this.w=cw; this.h=chh;
+        this.applyBox(); this.moveTo(x,y);
+      });
+      const rup=()=>{ if(!rz) return; rz=false; this.el.classList.remove('sizing'); };
+      hEl.addEventListener('pointerup',rup);
+      hEl.addEventListener('pointercancel',rup);
+      hEl.addEventListener('dblclick',e=>{
+        e.stopPropagation();
+        this.scale=1;
+        this.setSize(this.compute?520:this.browse?540:400,
+                     this.compute?330:this.browse?320:250, true);
+      });
+    }
+  }
+}
+
+/* ============================================================================
+   LAYOUT
+   The rig places its windows to dodge a face. Nothing here has to dodge
+   anything, so the layouts are the plain useful ones.
+   ========================================================================== */
+/* Windows arriving one at a time are dealt onto a coarse grid, offset a little
+   each pass so a busy rig does not stack every window on one spot. It is a
+   first guess only — TILE and STACK are there for when it stops being enough. */
+let slot=0;
+function nextSlot(w){
+  const R=wallRect();
+  const cols=Math.max(1,Math.floor(R.w/(w.w*0.72)));
+  const rows=Math.max(1,Math.floor(R.h/(w.h*0.72)));
+  const cells=cols*rows;
+  const i=slot++;
+  const cell=i%cells;
+  const pass=Math.floor(i/cells);                  // each full pass nudges over
+  const c=cell%cols, r=Math.floor(cell/cols);
+  const gx=(R.w-w.w)/Math.max(1,cols-1||1), gy=(R.h-w.h)/Math.max(1,rows-1||1);
+  const x=(cols>1? c*gx : (R.w-w.w)/2) + (pass%3)*22;
+  const y=(rows>1? r*gy : (R.h-w.h)/2) + (pass%3)*18;
+  return {x:clamp(x,4,Math.max(4,R.w-w.w-4)),
+          y:clamp(y,2,Math.max(2,R.h-w.h-4))};
+}
+const arrangeable=()=>[...WINS.values()].filter(w=>!w.pinned && !w.dead);
+
+function tile(){
+  const ws=arrangeable(); if(!ws.length) return;
+  const R=wallRect();
+  const cols=Math.ceil(Math.sqrt(ws.length));
+  const rows=Math.ceil(ws.length/cols);
+  const gw=Math.floor((R.w-8)/cols), gh=Math.floor((R.h-8)/rows);
+  ws.forEach((w,i)=>{
+    const c=i%cols, r=Math.floor(i/cols);
+    w.setSize(gw-8, gh-8);
+    w.moveTo(4+c*gw, 4+r*gh);
+    w.raise();
+  });
+  msg(`TILED ${ws.length}`);
+}
+function cascade(){
+  const ws=arrangeable(); if(!ws.length) return;
+  const R=wallRect();
+  ws.forEach((w,i)=>{
+    w.setSize(Math.min(600,R.w-80), Math.min(360,R.h-80));
+    w.moveTo(20+i*30, 16+i*28);
+    w.raise();
+  });
+  msg(`CASCADED ${ws.length}`);
+}
+/* one column, full height, sorted by category — the reading layout */
+function stack(){
+  const ws=arrangeable(); if(!ws.length) return;
+  const R=wallRect();
+  ws.sort((a,b)=> a.cat===b.cat ? a.id-b.id : (a.cat<b.cat?-1:1));
+  const cols=Math.min(ws.length, Math.max(1,Math.floor(R.w/430)));
+  const colW=Math.floor(R.w/cols);
+  const per=Math.ceil(ws.length/cols);
+  const rowH=Math.floor(R.h/per);
+  ws.forEach((w,i)=>{
+    const c=Math.floor(i/per), r=i%per;
+    w.setSize(colW-8, rowH-6);
+    w.moveTo(4+c*colW, 3+r*rowH);
+    w.raise();
+  });
+  msg(`STACKED ${ws.length}`);
+}
+function clearDead(){
+  let n=0;
+  for(const w of [...WINS.values()]) if(w.dead){ w.destroy(); n++; }
+  msg(n?`CLEARED ${n} DEAD`:'NO DEAD WINDOWS');
+}
+
+/* ============================================================================
+   WIRE PROTOCOL
+   ========================================================================== */
+function post(m){
+  if(ch){ try{ ch.postMessage(m); }catch(e){} }
+  if(rigWin && !rigWin.closed){ try{ rigWin.postMessage(m,'*'); }catch(e){} }
+}
+
+let rigSeen=0;
+function rigUp(){
+  rigSeen=performance.now();
+  $('#link').classList.add('up');
+  $('#linktx').textContent='RIG LIVE';
+  showIdle();
+}
+
+/* Three states worth telling apart, and the card is the only place to say it:
+   nothing on the channel at all; a rig that has answered but has not opened a
+   terminal yet (it is sitting on its boot screen, or the subject is out of
+   shot); and a wall with windows on it, where the card gets out of the way. */
+function showIdle(){
+  if(WINS.size){ idle.classList.add('gone'); return; }
+  const linked = rigSeen && performance.now()-rigSeen<14000;
+  idle.classList.remove('gone');
+  if(linked){
+    $('#idleTtl').textContent='RIG LINKED — NO TERMINALS YET';
+    $('#idleBody').innerHTML=
+      'THE RIG IS ON THIS CHANNEL AND ANSWERING.<br>'+
+      'IT HAS NOT OPENED A WINDOW YET — START THE SESSION IN THE RIG,<br>'+
+      'OR PUT A SUBJECT IN FRONT OF THE SENSOR.';
+    $('#idleFoot').textContent='▚ MIRRORING — EVERY WINDOW IT OPENS LANDS HERE';
+  } else {
+    $('#idleTtl').textContent='NO RIG ON THIS CHANNEL';
+    $('#idleBody').innerHTML=
+      'THIS PAGE IS A MIRROR. IT HOLDS NO SESSION OF ITS OWN.<br>'+
+      'OPEN <b>prototype_v7.html</b> IN ANOTHER TAB OR WINDOW AND START IT.<br>'+
+      'EVERY TERMINAL THE RIG OPENS WILL APPEAR HERE, FULL SIZE.';
+    $('#idleFoot').textContent='▚ LISTENING ON identity_unknown_v7 …';
+  }
+}
+
+/* dedup across the two transports */
+let lastSeq=0;
+const seen=new Set();
+function inbound(m){
+  if(!m||!m.k) return;
+  /* our own outbound vocabulary, echoed back on some browsers */
+  if(m.k==='hello'||m.k==='ping'||m.k==='close'||m.k==='bye') return;
+  if(m.n!==undefined){
+    if(seen.has(m.n)) return;
+    seen.add(m.n);
+    /* the set only needs to cover the overlap between the two paths */
+    if(m.n-lastSeq>0) lastSeq=m.n;
+    if(seen.size>400) for(const v of seen){ if(v<lastSeq-200) seen.delete(v); }
+  }
+  rigUp();
+  handle(m);
+}
+if(ch) ch.onmessage=e=>inbound(e.data);
+addEventListener('message', e=>inbound(e.data));
+
+function handle(m){
+  switch(m.k){
+    case 'snapshot':
+      for(const t of m.terms||[]) if(!WINS.has(t.id)) new Win(t);
+      msg(`SNAPSHOT — ${(m.terms||[]).length} WINDOW(S) ADOPTED`);
+      break;
+    case 'open':
+      if(!WINS.has(m.t.id)) new Win(m.t);
+      break;
+    case 'write':{
+      const w=WINS.get(m.id); if(w&&!w.dead) w.write(m.text,m.cls);
+      break; }
+    case 'prog':{ const w=WINS.get(m.id); if(w) w.setProg(m.v); break; }
+    case 'title':{ const w=WINS.get(m.id); if(w&&!w.dead) w.setTitle(m.v); break; }
+    case 'url':{ const w=WINS.get(m.id); if(w) w.setUrl(m.url,m.spin); break; }
+    case 'cls':{ const w=WINS.get(m.id); if(w) w.cls(m.c,m.on); break; }
+    case 'glitch':{ const w=WINS.get(m.id); if(w) w.glitch(m.ms); break; }
+    case 'wipe':{ const w=WINS.get(m.id); if(w) w.wipe(); break; }
+    case 'kill':{ const w=WINS.get(m.id); if(w) w.kill(); break; }
+    case 'geom': break;               // the console keeps its own geometry
+    case 'state':
+      document.body.classList.toggle('rage',!!m.rage);
+      $('#rigfps').textContent=m.fps||'--';
+      break;
+  }
+};
+
+/* announce, then keep announcing — a rig started after this page still finds it */
+post({k:'hello'});
+setInterval(()=>{
+  post({k:'ping'});
+  /* generous, for the same reason the rig's own timeout is: a backgrounded or
+     occluded window gets its timers throttled, and "quiet" should mean the rig
+     stopped, not that this page lost focus for a moment */
+  if(rigSeen && performance.now()-rigSeen>14000){
+    $('#link').classList.remove('up');
+    $('#linktx').textContent='RIG QUIET';
+    showIdle();
+  }
+  /* and re-offer a handshake while nothing has ever answered */
+  if(!rigSeen) post({k:'hello'});
+}, 1800);
+addEventListener('beforeunload',()=>post({k:'bye'}));
+
+/* ---------------------------------------------------------------- chrome --- */
+let msgT=0;
+function msg(s){
+  $('#botmsg').textContent=s;
+  clearTimeout(msgT);
+  msgT=setTimeout(()=>{ $('#botmsg').textContent=''; }, 2600);
+}
+function refreshChrome(){
+  $('#nwin').textContent=WINS.size;
+  showIdle();
+}
+setInterval(()=>{ $('#nlines').textContent=totalLines; }, 500);
+
+$('#bTile').onclick=tile;
+$('#bCasc').onclick=cascade;
+$('#bStack').onclick=stack;
+$('#bClear').onclick=clearDead;
+$('#bFull').onclick=()=>{
+  document.fullscreenElement?document.exitFullscreen()
+                            :document.documentElement.requestFullscreen();
+};
+const toggle=(el,key,label)=>{
+  el.onclick=()=>{
+    CFG[key]=!CFG[key];
+    el.classList.toggle('on',CFG[key]);
+    msg(`${label} ${CFG[key]?'ON':'OFF'}`);
+  };
+  el.classList.toggle('on',CFG[key]);
+};
+toggle($('#bFollow'),'follow','AUTO-PLACE');
+toggle($('#bAuto'),'auto','AUTOSCROLL');
+toggle($('#bKeep'),'keepDead','KEEP DEAD');
+
+addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  const k=e.key.toLowerCase();
+  if(k==='t') tile();
+  if(k==='c') cascade();
+  if(k==='s') stack();
+  if(k==='x') clearDead();
+  if(k==='f') $('#bFull').click();
+});
+
+/* keep everything inside the wall when the console window itself is resized */
+addEventListener('resize',()=>{
+  const R=wallRect();
+  for(const w of WINS.values()){
+    w.setSize(Math.min(w.w,R.w), Math.min(w.h,R.h));
+    w.moveTo(w.x,w.y);
+  }
+});
+</script>
+</body>
+</html>
